@@ -73,6 +73,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.data.ClipTemplate
 import app.marginalia.data.TemplateProperty
+import app.marginalia.obsidian.ClipperExport
+import app.marginalia.update.AdbInstaller
+import app.marginalia.update.ShizukuInstaller
 import app.marginalia.obsidian.ClipperImport
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -95,13 +98,42 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             }.onSuccess { say("Imported your clipper settings.") }.onFailure { say("That file is not a clipper settings export.") }
         }
     }
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val name = ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "font.ttf"
+                val dir = java.io.File(ctx.filesDir, "fonts").apply { deleteRecursively(); mkdirs() }
+                val file = java.io.File(dir, name.replace(Regex("[^A-Za-z0-9._-]"), "_"))
+                ctx.contentResolver.openInputStream(uri)!!.use { i -> file.outputStream().use { o -> i.copyTo(o) } }
+                // a file that is not a font would silently fall back to the default, so check it loads
+                val tf = android.graphics.Typeface.createFromFile(file)
+                require(tf != null && file.length() > 1000)
+                set { it.copy(customFontPath = file.absolutePath, customFontName = name.substringBeforeLast('.'), readerFont = "custom") }
+            }.onSuccess { say("Font added.") }.onFailure { say("That file is not a font. Pick a .ttf or .otf file.") }
+        }
+    }
+    val exporter =rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            runCatching {
+                ctx.contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { it.write(ClipperExport.build(app.settings.value)) }
+            }.onSuccess { say("Saved your presets.") }.onFailure { say("Could not save the file.") }
+        }
+    }
+    val folderPicker =rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             }
-            set { it.copy(vaultFolderUri = uri.toString()) }
-            say("Vault folder set.")
+            val name = android.net.Uri.decode(uri.toString()).substringAfterLast(':').substringAfterLast('/').ifBlank { "Vault" }
+            set { it.copy(
+                vaults = (it.vaults + name).distinct(),
+                vault = it.vault.ifBlank { name },
+                vaultFolders = it.vaultFolders + (name to uri.toString()),
+                vaultFolderUri = uri.toString(),
+            ) }
+            app.vaults.refresh(name, force = true)
+            say("Added $name. Reading your notes now.")
         }
     }
 
@@ -127,13 +159,33 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                     ) {
-                        items(Palettes.size) { i ->
-                            val p = Palettes[i]
+                        val all = allPalettes(s.customPalettes)
+                        items(all.size) { i ->
+                            val p = all[i]
                             PaletteCard(p, selected = s.themePreset == p.id) { set { it.copy(themePreset = p.id, accentOverride = 0L) } }
                         }
                     }
+                    var making by remember { mutableStateOf(false) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = { making = true }, shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Make a palette")
+                        }
+                        if (s.customPalettes.any { it.id == s.themePreset }) {
+                            TextButton(onClick = {
+                                set { st -> st.copy(customPalettes = st.customPalettes.filterNot { it.id == st.themePreset }, themePreset = "ink") }
+                            }) { Text("Delete this palette") }
+                        }
+                    }
+                    if (making) PaletteMaker(
+                        onDismiss = { making = false },
+                        onSave = { cp -> set { it.copy(customPalettes = it.customPalettes + cp, themePreset = cp.id, accentOverride = 0L) }; making = false },
+                    )
                     Label("Appearance")
-                    Choices(listOf("auto" to "Auto", "light" to "Light", "dark" to "Dark"), s.appearance) { v -> set { it.copy(appearance = v) } }
+                    Choices(listOf("auto" to "Auto") + Modes, s.appearance) { v -> set { it.copy(appearance = v) } }
+                    Text(
+                        "Dusk is a softer dark. OLED is true black and saves battery on OLED screens.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Label("Accent")
                     Swatches(
                         colors = listOf(0xFFFF6A47, 0xFFF2A93B, 0xFFB9D84A, 0xFF3DDC97, 0xFFFF5C93, 0xFFE2554F),
@@ -141,6 +193,25 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         allowReset = true,
                         onPick = { c -> set { it.copy(accentOverride = c) } },
                     )
+                    Label("Home tabs")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HomeTabs.forEach { (id, label) ->
+                            val on = id in s.homeTabs
+                            FilterChip(
+                                selected = on,
+                                onClick = {
+                                    // keep at least one tab
+                                    val next = if (on) s.homeTabs - id else HomeTabs.keys.filter { it in s.homeTabs || it == id }
+                                    if (next.isNotEmpty()) set { it.copy(homeTabs = next) }
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    Label("Library layout")
+                    Choices(LibraryLayouts, s.libraryLayout) { v -> set { it.copy(libraryLayout = v) } }
+                    Label("Pull to refresh")
+                    Choices(PixelChars, s.pixelChar) { v -> set { it.copy(pixelChar = v) } }
                     Label("Motion")
                     Choices(listOf("calm" to "Calm", "lively" to "Lively", "playful" to "Playful"), s.motion) { v -> set { it.copy(motion = v) } }
                     SliderRow("Corner roundness", s.roundness, 0.4f..1.6f, "%.1fx".format(s.roundness)) { v -> set { it.copy(roundness = v) } }
@@ -150,7 +221,21 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             // ---------- reading ----------
             item { Group("Reading") {
                 Label("Font")
-                Choices(listOf("serif" to "Serif", "sans" to "Sans", "system" to "System"), s.readerFont) { v -> set { it.copy(readerFont = v) } }
+                Choices(
+                    listOf("serif" to "Serif", "sans" to "Sans", "system" to "System") + (if (s.customFontPath.isNotBlank()) listOf("custom" to s.customFontName.ifBlank { "Mine" }) else emptyList()),
+                    s.readerFont,
+                ) { v -> set { it.copy(readerFont = v) } }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalButton(onClick = { fontPicker.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/octet-stream", "*/*")) }, shapes = ButtonDefaults.shapes()) {
+                        Text(if (s.customFontPath.isBlank()) "Use my own font" else "Change my font")
+                    }
+                    if (s.customFontPath.isNotBlank()) TextButton(onClick = {
+                        set { it.copy(customFontPath = "", customFontName = "", uiFontCustom = false, readerFont = if (it.readerFont == "custom") "serif" else it.readerFont) }
+                    }) { Text("Remove") }
+                }
+                if (s.customFontPath.isNotBlank()) {
+                    SwitchRow("Use it everywhere", "Titles and menus too, not only the transcript.", s.uiFontCustom) { v -> set { it.copy(uiFontCustom = v) } }
+                }
                 SliderRow("Text size", s.readerFontSize, 14f..30f, "${s.readerFontSize.toInt()} sp") { v -> set { it.copy(readerFontSize = v) } }
                 SliderRow("Line height", s.lineHeight, 1.2f..2.2f, "%.2f".format(s.lineHeight)) { v -> set { it.copy(lineHeight = v) } }
                 SliderRow("Reading width", s.maxWidth, 24f..60f, "${s.maxWidth.toInt()}") { v -> set { it.copy(maxWidth = v) } }
@@ -171,14 +256,28 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     "When on, the note body is your highlights. When off, it is the transcript.",
                     s.highlightBehavior == "replace-content",
                 ) { v -> set { it.copy(highlightBehavior = if (v) "replace-content" else "keep-content") } }
-                Label("Marker colour")
-                Swatches(
-                    colors = listOf(0xFFF2C14E, 0xFFFF8A65, 0xFF9CCC65, 0xFF4DD0E1, 0xFFF48FB1, 0xFFFFFFFF),
-                    selected = s.highlightColor,
-                    allowReset = false,
-                    onPick = { c -> set { it.copy(highlightColor = c) } },
+                Label("Holding a word selects")
+                Choices(listOf("word" to "Word", "sentence" to "Sentence", "paragraph" to "Paragraph"), s.holdSelects) { v -> set { it.copy(holdSelects = v) } }
+                Text(
+                    "Drag the two handles to take exactly the text you want. The toolbar also has Sentence and Paragraph buttons.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Label("How a highlight is written")
+                Label("In the note")
+                Choices(listOf("obsidian" to "Obsidian highlight", "plain" to "Plain text"), s.highlightSyntax) { v -> set { it.copy(highlightSyntax = v) } }
+                Text(
+                    "Yellow is written as ==text==. Other colours use <mark style=\"background: …\">, the style the Highlightr plugin uses.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Label("Layout of each highlight")
+                Choices(
+                    listOf(
+                        "> {text}\n> [{time}]({link})" to "Quote",
+                        "> [!quote] [{time}]({link})\n> {text}" to "Callout",
+                        "- {text} [{time}]({link})" to "Bullet",
+                        "{text} [{time}]({link})" to "Inline",
+                    ),
+                    s.highlightFormat,
+                ) { v -> set { it.copy(highlightFormat = v) } }
                 OutlinedTextField(
                     value = s.highlightFormat,
                     onValueChange = { v -> set { it.copy(highlightFormat = v) } },
@@ -187,6 +286,8 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 )
             } }
+
+            item { UpdateGroup(s, ::set) }
 
             // ---------- obsidian ----------
             item { Group("Obsidian") {
@@ -197,20 +298,51 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 ) { v -> set { it.copy(saveBehavior = v) } }
 
                 Label("Vaults")
+                val indexes by app.vaults.indexes.collectAsState()
+                val busy by app.vaults.busy.collectAsState()
                 s.vaults.forEach { v ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(selected = v == s.vault, onClick = { set { it.copy(vault = v) } }, label = { Text(v) })
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { set { st -> st.copy(vaults = st.vaults - v, vault = if (st.vault == v) st.vaults.firstOrNull { it != v }.orEmpty() else st.vault) } }) {
-                            Icon(Icons.Rounded.Close, "Remove vault")
+                    val idx = indexes[v]
+                    val linked = s.vaultFolders.containsKey(v)
+                    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilterChip(selected = v == s.vault, onClick = { set { it.copy(vault = v) } }, label = { Text(v) })
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                when {
+                                    busy[v] != null -> "Reading… ${busy[v]} notes"
+                                    idx != null -> "${idx.notes.size} notes · ${idx.tags.size} tags"
+                                    linked -> "Not read yet"
+                                    else -> "No folder. Search is off."
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            if (linked) TextButton(onClick = { app.vaults.refresh(v, force = true) }) { Text("Reindex") }
+                            IconButton(onClick = {
+                                app.vaults.forget(v)
+                                set { st -> st.copy(
+                                    vaults = st.vaults - v,
+                                    vaultFolders = st.vaultFolders - v,
+                                    vault = if (st.vault == v) st.vaults.firstOrNull { it != v }.orEmpty() else st.vault,
+                                ) }
+                            }) { Icon(Icons.Rounded.Close, "Remove vault") }
                         }
                     }
+                }
+                Text(
+                    "Pick the folder that holds a vault. Marginalia reads your notes, folders and tags so you can search them and file clips. It only reads. It writes only when you save a clip.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FilledTonalButton(onClick = { folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
+                    Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add a vault folder")
                 }
                 var newVault by remember { mutableStateOf("") }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = newVault, onValueChange = { newVault = it }, singleLine = true,
-                        label = { Text("Vault name") }, modifier = Modifier.weight(1f),
+                        label = { Text("Or add a name only") }, modifier = Modifier.weight(1f),
                     )
                     FilledTonalButton(onClick = {
                         val n = newVault.trim()
@@ -219,19 +351,6 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                             newVault = ""
                         }
                     }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add vault") }
-                }
-
-                Label("Vault folder, for Save file")
-                Text(
-                    if (s.vaultFolderUri.isBlank()) "Not set. Pick the folder that holds your vault." else android.net.Uri.decode(s.vaultFolderUri).substringAfterLast(':'),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
-                FilledTonalButton(onClick = { folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Choose folder")
                 }
 
                 Label("Templates")
@@ -267,7 +386,10 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("New template")
                     }
                     FilledTonalButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import settings")
+                        Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import")
+                    }
+                    FilledTonalButton(onClick = { exporter.launch("obsidian-web-clipper-settings.json") }, shapes = ButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Export")
                     }
                 }
                 TextButton(onClick = {
@@ -280,7 +402,8 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
 
             // ---------- playback ----------
             item { Group("Playback and captions") {
-                SwitchRow("Keep playing in the background", "Audio continues with the screen off, with a notification.", s.backgroundPlay) { v -> set { it.copy(backgroundPlay = v) } }
+                SwitchRow("Start playing when I open a video", null, s.autoPlay) { v -> set { it.copy(autoPlay = v) } }
+                SwitchRow("Keep playing in the background","Audio continues with the screen off, with a notification.", s.backgroundPlay) { v -> set { it.copy(backgroundPlay = v) } }
                 SwitchRow("Keep the screen on", "Only while a video is playing.", s.keepScreenOn) { v -> set { it.copy(keepScreenOn = v) } }
                 OutlinedTextField(
                     value = s.captionLang,
@@ -309,6 +432,209 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp))
+    }
+}
+
+// ---------- palette maker ----------
+
+@Composable
+private fun PaletteMaker(onDismiss: () -> Unit, onSave: (app.marginalia.data.CustomPalette) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var seed by remember { mutableStateOf(0xFF3DDC97L) }
+    var hex by remember { mutableStateOf("3DDC97") }
+    var style by remember { mutableStateOf("tonal") }
+    val palette = makePalette("preview", name.ifBlank { "Mine" }, Color(seed.toInt()), style)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Make a palette") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it.take(20) }, singleLine = true, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+                Label("Pick one colour")
+                Swatches(
+                    colors = listOf(0xFFFF6A47, 0xFFF2A93B, 0xFFFFD84D, 0xFFB9D84A, 0xFF3DDC97, 0xFF4FC3F7, 0xFF8FB3D9, 0xFFE08AC8, 0xFFFF5C93, 0xFFE2554F),
+                    selected = seed, allowReset = false,
+                    onPick = { c -> seed = c; hex = "%06X".format(c and 0xFFFFFF) },
+                )
+                OutlinedTextField(
+                    value = hex,
+                    onValueChange = { v ->
+                        hex = v.filter { it.isLetterOrDigit() }.take(6).uppercase()
+                        if (hex.length == 6) hex.toLongOrNull(16)?.let { seed = 0xFF000000L or it }
+                    },
+                    singleLine = true, label = { Text("Or type a hex code") }, modifier = Modifier.fillMaxWidth(),
+                )
+                Label("Style")
+                Choices(PaletteStyles, style) { style = it }
+                Label("How it looks")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Modes.forEach { (m, label) ->
+                        val bg = backgroundFor(palette, m)
+                        val fg = if (m == "light") palette.textLight else palette.textDark
+                        val accent = if (m == "light") palette.accentLight else palette.accent
+                        Column(
+                            Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(bg).padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Box(Modifier.size(14.dp).clip(CircleShape).background(accent))
+                            Text("Aa", color = fg, fontSize = 18.sp)
+                            Text(label, color = fg.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(app.marginalia.data.CustomPalette(UUID.randomUUID().toString().take(8), name.ifBlank { "Mine" }, seed, style))
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+// ---------- updates ----------
+
+@Composable
+private fun UpdateGroup(s: app.marginalia.data.AppSettings, set: ((app.marginalia.data.AppSettings) -> app.marginalia.data.AppSettings) -> Unit) {
+    val app = LocalApp.current
+    val up = app.updates
+    val state by up.state.collectAsState()
+    var advanced by remember { mutableStateOf(false) }
+    Group("Updates") {
+        Text("Version ${up.currentVersion}", style = MaterialTheme.typography.titleSmall)
+        when (val u = state) {
+            is app.marginalia.update.UpdateState.Idle, is app.marginalia.update.UpdateState.UpToDate -> {
+                Text(
+                    if (u is app.marginalia.update.UpdateState.UpToDate) "You have the newest version." else "Not checked yet.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FilledTonalButton(onClick = { up.check() }, shapes = ButtonDefaults.shapes()) { Text("Check for updates") }
+            }
+            is app.marginalia.update.UpdateState.Checking -> Text("Checking…", style = MaterialTheme.typography.bodyMedium)
+            is app.marginalia.update.UpdateState.Available -> {
+                Text("Version ${u.info.version} is ready", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                if (u.info.notes.isNotBlank()) Text(u.info.notes.trim().take(600), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { up.installFlow(u.info) }, shapes = ButtonDefaults.shapes()) { Text("Install") }
+                    TextButton(onClick = { up.ignore(u.info) }) { Text("Skip this version") }
+                }
+                Text(
+                    "Tap once. Android asks for your OK, the download runs in the app, and the install follows.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            is app.marginalia.update.UpdateState.Downloading -> {
+                val frac = if (u.total > 0) (u.done.toFloat() / u.total).coerceIn(0f, 1f) else 0f
+                Text(
+                    "Downloading ${u.info.version}  ·  ${u.done / 1_000_000} of ${if (u.total > 0) "${u.total / 1_000_000}" else "?"} MB",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (u.total > 0) androidx.compose.material3.LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
+                else androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            is app.marginalia.update.UpdateState.Ready -> {
+                Text("Downloaded ${u.info.version}.", style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = { up.install(u) }, shapes = ButtonDefaults.shapes()) { Text("Install now") }
+            }
+            is app.marginalia.update.UpdateState.Installing -> {
+                Text("Installing ${u.info.version}… Approve the prompt if Android shows one.", style = MaterialTheme.typography.bodyMedium)
+                androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            is app.marginalia.update.UpdateState.Failed -> {
+                Text(u.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                FilledTonalButton(onClick = { up.check() }, shapes = ButtonDefaults.shapes()) { Text("Try again") }
+            }
+        }
+        if (!up.canInstall()) {
+            Text(
+                "Android must allow Marginalia to install apps. You are asked once, when you tap Install.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val notice by up.notice.collectAsState()
+        notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        Label("Install with")
+        Choices(listOf("system" to "Android", "shizuku" to "Shizuku", "adb" to "Wireless ADB"), s.installMethod) { v -> set { it.copy(installMethod = v) } }
+        val ctx = LocalContext.current
+        val scope = rememberCoroutineScope()
+        if (s.installMethod == "shizuku") {
+            val running = ShizukuInstaller.running()
+            Text(
+                when {
+                    !running -> "Shizuku is not running. Start it, then come back."
+                    ShizukuInstaller.allowed() -> "Shizuku is ready. Updates install without a prompt."
+                    else -> "Shizuku is running. Allow Marginalia once."
+                },
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (running && !ShizukuInstaller.allowed()) {
+                FilledTonalButton(onClick = { ShizukuInstaller.askPermission() }, shapes = ButtonDefaults.shapes()) { Text("Allow in Shizuku") }
+            }
+        }
+        if (s.installMethod == "adb") {
+            val adb = remember { AdbInstaller.get(ctx) }
+            var paired by remember { mutableStateOf(adb.paired()) }
+            var port by remember { mutableStateOf("") }
+            var code by remember { mutableStateOf("") }
+            var busy by remember { mutableStateOf(false) }
+            var msg by remember { mutableStateOf<String?>(null) }
+            Text(
+                if (paired) "Paired. Updates install on their own through wireless debugging."
+                else "Set up once. Turn on Developer options and Wireless debugging. Tap Pair device with pairing code. Type the port and the code here. Keep that Android dialog open while you tap Pair.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!paired) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = port, onValueChange = { port = it.filter(Char::isDigit).take(5) }, singleLine = true,
+                        label = { Text("Port") }, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                    OutlinedTextField(
+                        value = code, onValueChange = { code = it.filter(Char::isDigit).take(6) }, singleLine = true,
+                        label = { Text("Code") }, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                }
+                FilledTonalButton(
+                    enabled = !busy && port.isNotEmpty() && code.length == 6,
+                    onClick = {
+                        busy = true; msg = null
+                        scope.launch {
+                            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { adb.pair(port.toInt(), code) }
+                            busy = false
+                            if (r == null) { paired = true; code = "" } else msg = r
+                        }
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) { Text(if (busy) "Pairing…" else "Pair") }
+                msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            } else {
+                TextButton(onClick = { java.io.File(ctx.filesDir, "adb_paired").delete(); paired = false }) { Text("Pair again") }
+            }
+        }
+        SwitchRow("Check on its own", "About twice a day, when you open the app.", s.autoCheckUpdates) { v -> set { it.copy(autoCheckUpdates = v) } }
+        TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide sources" else "Update sources") }
+        if (advanced) {
+            OutlinedTextField(
+                value = s.updateRepo, onValueChange = { v -> set { it.copy(updateRepo = v.trim()) } }, singleLine = true,
+                label = { Text("GitHub repo (owner/name)") }, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = s.updateToken, onValueChange = { v -> set { it.copy(updateToken = v.trim()) } }, singleLine = true,
+                label = { Text("Access token, only for a private repo") },
+                supportingText = { Text("Needs read access to releases. It stays on this phone.") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = s.updateMirror, onValueChange = { v -> set { it.copy(updateMirror = v.trim()) } }, singleLine = true,
+                label = { Text("Mirror JSON link, optional") },
+                supportingText = { Text("Tried first. Shape: version, notes, url, size.") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

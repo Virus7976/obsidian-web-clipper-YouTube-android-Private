@@ -2,76 +2,74 @@ package app.marginalia.data
 
 import java.util.UUID
 
-/** All the add/erase rules for highlights, kept apart from the screen so they are easy to reason about. */
+/** All the add, recolour and erase rules for highlights, kept apart from the screen so they are easy to test. */
 object Highlights {
     private const val EPS = 0.05
 
-    fun covers(h: Highlight, line: Line) = line.start >= h.startSec - EPS && line.start < h.endSec - EPS
+    private fun covers(h: Highlight, i: Int, w: Word) =
+        if (h.w0 >= 0) i in h.w0..h.w1 else w.start >= h.startSec - EPS && w.start < h.endSec - EPS
 
-    fun markedLines(lines: List<Line>, highlights: List<Highlight>): BooleanArray {
-        val out = BooleanArray(lines.size)
-        if (highlights.isEmpty()) return out
-        for (i in lines.indices) out[i] = highlights.any { covers(it, lines[i]) }
+    /** For every word, the colour index of the highlight on it, or -1. Later highlights win. */
+    fun colorByWord(words: List<Word>, highlights: List<Highlight>): IntArray {
+        val out = IntArray(words.size) { -1 }
+        for (h in highlights) {
+            if (h.w0 >= 0) {
+                for (i in h.w0..minOf(h.w1, words.lastIndex)) out[i] = h.color
+            } else {
+                for (i in words.indices) if (covers(h, i, words[i])) out[i] = h.color
+            }
+        }
         return out
     }
 
-    private fun textOf(lines: List<Line>, from: Double, to: Double) =
-        lines.filter { it.start >= from - EPS && it.start < to - EPS }.joinToString(" ") { it.text }
-
-    /** Highlight lines lo..hi. Anything it overlaps is merged into one. */
-    fun add(current: List<Highlight>, lines: List<Line>, lo: Int, hi: Int): List<Highlight> {
-        if (lines.isEmpty()) return current
-        val from = lines[lo.coerceIn(lines.indices)].start
-        val to = lines[hi.coerceIn(lines.indices)].end
-        val overlap = current.filter { it.startSec < to && it.endSec > from }
-        val start = minOf(from, overlap.minOfOrNull { it.startSec } ?: from)
-        val end = maxOf(to, overlap.maxOfOrNull { it.endSec } ?: to)
-        val merged = Highlight(
-            id = UUID.randomUUID().toString(),
-            startSec = start,
-            endSec = end,
-            text = textOf(lines, start, end),
-            note = overlap.map { it.note }.filter { it.isNotBlank() }.joinToString("\n"),
-        )
-        return ((current - overlap.toSet()) + merged).sortedBy { it.startSec }
+    private fun wordsOf(h: Highlight, words: List<Word>): IntRange? {
+        val idx = words.indices.filter { covers(h, it, words[it]) }
+        return if (idx.isEmpty()) null else idx.first()..idx.last()
     }
 
-    /** Un-highlight lines lo..hi. A highlight that is only partly erased is split, not dropped. */
-    fun erase(current: List<Highlight>, lines: List<Line>, lo: Int, hi: Int): List<Highlight> {
-        if (lines.isEmpty()) return current
-        val from = lines[lo.coerceIn(lines.indices)].start
-        val to = lines[hi.coerceIn(lines.indices)].end
+    private fun make(words: List<Word>, text: (Int, Int) -> String, i0: Int, i1: Int, color: Int, note: String = "") = Highlight(
+        id = UUID.randomUUID().toString(),
+        startSec = words[i0].start,
+        endSec = words.getOrNull(i1 + 1)?.start ?: (words[i1].start + 1.0),
+        text = text(i0, i1),
+        note = note,
+        color = color,
+        w0 = i0,
+        w1 = i1,
+    )
+
+    /** Paint words i0..i1 in [color]. Whatever was there is replaced; a partly covered highlight is cut, not lost. */
+    fun apply(current: List<Highlight>, words: List<Word>, text: (Int, Int) -> String, i0: Int, i1: Int, color: Int): List<Highlight> {
+        if (words.isEmpty()) return current
+        val lo = i0.coerceIn(words.indices)
+        val hi = i1.coerceIn(words.indices)
+        val cleared = erase(current, words, text, lo, hi)
+        return (cleared + make(words, text, lo, hi, color)).sortedBy { it.startSec }
+    }
+
+    /** Take highlights off words i0..i1. A highlight that is only partly erased is split into pieces. */
+    fun erase(current: List<Highlight>, words: List<Word>, text: (Int, Int) -> String, i0: Int, i1: Int): List<Highlight> {
+        if (words.isEmpty()) return current
         val out = ArrayList<Highlight>()
         for (h in current) {
-            if (!(h.startSec < to && h.endSec > from)) {
+            val r = wordsOf(h, words)
+            if (r == null || r.last < i0 || r.first > i1) {
                 out += h
                 continue
             }
-            val kept = lines.indices.filter { covers(h, lines[it]) && !(lines[it].start >= from - EPS && lines[it].start < to - EPS) }
-            var runStart = -1
-            var prev = -2
             var first = true
-            fun flush(endIdx: Int) {
-                if (runStart < 0) return
-                val seg = lines.subList(runStart, endIdx + 1)
-                out += Highlight(
-                    id = UUID.randomUUID().toString(),
-                    startSec = seg.first().start,
-                    endSec = seg.last().end,
-                    text = seg.joinToString(" ") { it.text },
-                    note = if (first) h.note else "",
-                )
+            fun piece(a: Int, b: Int) {
+                if (b < a) return
+                out += make(words, text, a, b, h.color, if (first) h.note else "")
                 first = false
             }
-            for (idx in kept) {
-                if (idx != prev + 1) {
-                    flush(prev)
-                    runStart = idx
-                }
-                prev = idx
-            }
-            flush(prev)
+            piece(r.first, minOf(r.last, i0 - 1))
+            piece(maxOf(r.first, i1 + 1), r.last)
         }
         return out.sortedBy { it.startSec }
     }
+
+    /** Does any highlight touch words i0..i1? Decides whether a drag paints or erases. */
+    fun touches(current: List<Highlight>, words: List<Word>, i0: Int, i1: Int): Boolean =
+        colorByWord(words, current).let { c -> (i0..i1).any { c.getOrElse(it) { -1 } >= 0 } }
 }

@@ -15,9 +15,13 @@ data class VideoMeta(
     val thumb: String get() = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
 }
 
-/** One raw caption cue straight from YouTube. */
+/**
+ * One raw caption cue straight from YouTube.
+ * [offs] holds the start of each spoken word, in seconds from [start]. Auto captions have it;
+ * hand-made captions do not, and then the words are spread over the cue by their length.
+ */
 @Serializable
-data class Cue(val start: Double, val dur: Double, val text: String)
+data class Cue(val start: Double, val dur: Double, val text: String, val offs: List<Double>? = null)
 
 /** A readable line: several cues glued together so a sentence reads as one block. */
 data class Line(val start: Double, val end: Double, val text: String)
@@ -43,6 +47,22 @@ data class Highlight(
     val endSec: Double,
     val text: String,
     val note: String = "",
+    /** Index into [HighlightColors]. */
+    val color: Int = 0,
+    /** First and last word, by position in the transcript. -1 on highlights saved by version 1.0, which only know the time. */
+    val w0: Int = -1,
+    val w1: Int = -1,
+)
+
+/** The five marker colours. Yellow is Obsidian's own ==highlight==. The rest use Highlightr's <mark> style. */
+data class HighlightColor(val name: String, val ui: Long, val obsidian: String?)
+
+val HighlightColors = listOf(
+    HighlightColor("Yellow", 0xFFF2C14E, null),
+    HighlightColor("Red", 0xFFFF6B6B, "#FF5582A6"),
+    HighlightColor("Green", 0xFF5BD98C, "#BBFABBA6"),
+    HighlightColor("Blue", 0xFF6AA8FF, "#ADCCFFA6"),
+    HighlightColor("Purple", 0xFFB58CFF, "#D2B3FFA6"),
 )
 
 @Serializable
@@ -76,11 +96,23 @@ data class ClipTemplate(
     val properties: List<TemplateProperty> = emptyList(),
 )
 
+/** A palette made in the palette maker. */
+@Serializable
+data class CustomPalette(val id: String, val name: String, val seed: Long, val style: String = "tonal")
+
 @Serializable
 data class AppSettings(
     // look
     val themePreset: String = "ink",
-    val appearance: String = "auto", // auto | light | dark
+    val customPalettes: List<CustomPalette> = emptyList(),
+    /** Home tabs that are shown: add, library, vault. */
+    val homeTabs: List<String> = listOf("add", "library", "vault"),
+    val libraryLayout: String = "list", // list | grid | compact
+    val pixelChar: String = "ghost", // ghost | heart | star | invader | off
+    val customFontPath: String = "",
+    val customFontName: String = "",
+    val uiFontCustom: Boolean = false,
+    val appearance: String = "auto", // auto | light | dusk | dark | oled
     val accentOverride: Long = 0L, // 0 = use the preset accent
     val motion: String = "lively", // calm | lively | playful
     val roundness: Float = 1f,
@@ -98,13 +130,19 @@ data class AppSettings(
     val highlighterEnabled: Boolean = true,
     val alwaysShowHighlights: Boolean = true,
     val highlightBehavior: String = "replace-content", // replace-content | keep-content
-    val highlightColor: Long = 0xFFF2C14EL,
+    val highlightColor: Int = 0, // the colour new highlights start with
+    val holdSelects: String = "word", // word | sentence | paragraph
+    val highlightSyntax: String = "obsidian", // obsidian | plain
     val highlightFormat: String = "> {text}\n> [{time}]({link})",
+    val autoPlay: Boolean = true,
     // obsidian
     val saveBehavior: String = "addToObsidian", // addToObsidian | saveFile | copyToClipboard | share
     val vaults: List<String> = emptyList(),
     val vault: String = "",
     val vaultFolderUri: String = "",
+    /** Vault name -> folder the user picked, so the app can read tags, folders and notes. */
+    val vaultFolders: Map<String, String> = emptyMap(),
+    val recentTags: List<String> = emptyList(),
     val templates: List<ClipTemplate> = emptyList(),
     val selectedTemplateId: String = "",
     val propertyTypes: Map<String, String> = emptyMap(),
@@ -115,4 +153,13 @@ data class AppSettings(
     // advanced: client versions can be changed here if YouTube ever rejects the built-in ones
     val androidClientVersion: String = "20.10.38",
     val iosClientVersion: String = "20.10.4",
+    val vrClientVersion: String = "1.62.27",
+    // updates
+    val autoCheckUpdates: Boolean = true,
+    val updateRepo: String = "Virus7976/obsidian-web-clipper-YouTube-android-Private",
+    val updateToken: String = "",
+    val updateMirror: String = "",
+    val ignoredVersion: String = "",
+    val installMethod: String = "system", // system | shizuku | adb
+    val lastUpdateCheck: Long = 0L,
 )

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -78,6 +79,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.marginalia.data.OmniKind
+import app.marginalia.obsidian.Sender
 import app.marginalia.data.SavedVideo
 import app.marginalia.data.VideoMeta
 import app.marginalia.data.YouTube
@@ -102,6 +105,24 @@ fun HomeScreen(
     var loading by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<VideoMeta?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var searching by remember { mutableStateOf(false) }
+
+    if (searching) {
+        val vault = settings.vault.takeIf { settings.vaultFolders.containsKey(it) } ?: settings.vaultFolders.keys.first()
+        OmniSheet(
+            vault = vault, title = "Search $vault",
+            kinds = setOf(OmniKind.Note, OmniKind.Folder, OmniKind.Tag),
+            onPick = { item ->
+                searching = false
+                when (item.kind) {
+                    OmniKind.Note -> Sender.openNote(ctx, vault, item.value)
+                    OmniKind.Tag -> Sender.openSearch(ctx, vault, "tag:#${item.value}")
+                    else -> Sender.openSearch(ctx, vault, "path:\"${item.value}\"")
+                }
+            },
+            onDismiss = { searching = false },
+        )
+    }
 
     fun submit(text: String) {
         val id = YouTube.extractId(text)
@@ -138,7 +159,27 @@ fun HomeScreen(
         }
     }
 
+    val visibleTabs = settings.homeTabs.filter { it in HomeTabs.keys }.ifEmpty { listOf("add") }
+    var tab by remember { mutableStateOf(visibleTabs.first()) }
+    if (tab !in visibleTabs) tab = visibleTabs.first()
+    val showAdd = tab == "add" || visibleTabs.size == 1
+    val showLibrary = tab == "library" || visibleTabs.size == 1
+    val vaultIndexes by app.vaults.indexes.collectAsState()
+    var refreshing by remember { mutableStateOf(false) }
+    val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+
     Box(Modifier.fillMaxSize()) {
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                refreshing = true
+                settings.vaultFolders.keys.forEach { app.vaults.refresh(it, force = true) }
+                app.updates.check()
+                scope.launch { kotlinx.coroutines.delay(900); refreshing = false }
+            },
+            state = pullState,
+            indicator = { PixelIndicator(pullState, refreshing, settings.pixelChar) },
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -160,11 +201,32 @@ fun HomeScreen(
                     Spacer(Modifier.width(10.dp))
                     Text("Marginalia", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.weight(1f))
+                    if (settings.vaultFolders.isNotEmpty()) {
+                        IconButton(onClick = { searching = true }) { Icon(Icons.Rounded.Search, "Search your vault") }
+                    }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
             }
 
-            item("hero") {
+            if (visibleTabs.size > 1) item("tabs") {
+                FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    visibleTabs.forEach { id ->
+                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id)) })
+                    }
+                }
+            }
+
+            if (tab == "vault" && visibleTabs.size > 1) {
+                val vaultName = settings.vault.takeIf { settings.vaultFolders.containsKey(it) } ?: settings.vaultFolders.keys.firstOrNull()
+                vaultTab(
+                    vault = vaultName,
+                    notes = vaultName?.let { vaultIndexes[it] }?.notes.orEmpty().sortedByDescending { it.mtime }.take(40),
+                    onSearch = { searching = true },
+                    onOpen = { n -> vaultName?.let { Sender.openNote(ctx, it, n.path) } },
+                )
+            }
+
+            if (showAdd) item("hero") {
                 Surface(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp).fillMaxWidth(),
                     shape = MaterialTheme.shapes.extraLarge,
@@ -223,7 +285,7 @@ fun HomeScreen(
                 }
             }
 
-            item("preview") {
+            if (showAdd) item("preview") {
                 AnimatedVisibility(
                     visible = preview != null,
                     enter = expandVertically(spring(0.7f, 380f)) + fadeIn(),
@@ -244,7 +306,7 @@ fun HomeScreen(
             }
 
             val resume = videos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }.take(10)
-            if (resume.isNotEmpty()) {
+            if (showLibrary && resume.isNotEmpty()) {
                 item("resume-label") { SectionLabel("Pick up where you left off") }
                 item("resume") {
                     LazyRow(
@@ -257,19 +319,24 @@ fun HomeScreen(
             }
 
             val pinned = videos.filter { it.pinned }
-            if (pinned.isNotEmpty()) {
+            if (showLibrary && pinned.isNotEmpty()) {
                 item("pinned-label") { SectionLabel("Pinned") }
                 items(pinned, key = { "p" + it.meta.id }) { v -> VideoRow(v) { onOpen(v.meta.id) } }
             }
 
-            item("lib-label") {
-                SectionLabel("Library", trailing = if (videos.isEmpty()) null else "${videos.size} videos")
+            if (showLibrary) {
+                item("lib-label") {
+                    SectionLabel("Library", trailing = if (videos.isEmpty()) null else "${videos.size} videos")
+                }
+                if (videos.isEmpty()) {
+                    item("empty") { EmptyShelf() }
+                } else when (settings.libraryLayout) {
+                    "grid" -> items(videos.chunked(2), key = { "g" + it.first().meta.id }) { pair -> VideoGridRow(pair, onOpen) }
+                    "compact" -> items(videos, key = { "c" + it.meta.id }) { v -> VideoCompactRow(v, onOpen) }
+                    else -> items(videos, key = { "v" + it.meta.id }) { v -> VideoRow(v) { onOpen(v.meta.id) } }
+                }
             }
-            if (videos.isEmpty()) {
-                item("empty") { EmptyShelf() }
-            } else {
-                items(videos, key = { "v" + it.meta.id }) { v -> VideoRow(v) { onOpen(v.meta.id) } }
-            }
+        }
         }
 
         // Now playing pill

@@ -60,6 +60,32 @@ object Sender {
         return SendResult(true, "Shared.")
     }
 
+    fun readText(context: Context, uri: String): String? = runCatching {
+        context.contentResolver.openInputStream(Uri.parse(uri))?.bufferedReader()?.use { it.readText() }
+    }.getOrNull()
+
+    fun writeText(context: Context, uri: String, text: String): Boolean = runCatching {
+        context.contentResolver.openOutputStream(Uri.parse(uri), "wt")!!.bufferedWriter().use { it.write(text) }
+        true
+    }.getOrDefault(false)
+
+    /** Opens a note in Obsidian. */
+    fun openNote(context: Context, vault: String, path: String): Boolean = open(
+        context, "obsidian://open?vault=${Uri.encode(vault)}&file=${Uri.encode(path.removeSuffix(".md"))}",
+    )
+
+    /** Opens Obsidian's own search with a query filled in. */
+    fun openSearch(context: Context, vault: String, query: String): Boolean = open(
+        context, "obsidian://search?vault=${Uri.encode(vault)}&query=${Uri.encode(query)}",
+    )
+
+    private fun open(context: Context, uri: String): Boolean = try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (e: ActivityNotFoundException) {
+        false
+    }
+
     /** Writes the .md file straight into the vault folder the user picked. */
     fun saveFile(context: Context, note: BuiltNote, treeUri: String): SendResult {
         if (treeUri.isBlank()) return SendResult(false, "Pick your vault folder in Settings first.")

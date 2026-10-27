@@ -25,14 +25,24 @@ data class BuiltNote(
 object NoteBuilder {
     fun timeLink(id: String, sec: Double) = "https://www.youtube.com/watch?v=$id&t=${sec.toInt()}s"
 
+    /** Obsidian's own ==highlight== for yellow, a Highlightr-style <mark> for the other colours. */
+    fun styled(h: app.marginalia.data.Highlight, settings: AppSettings): String {
+        val text = h.text.replace(Regex("\\s*\\n\\s*"), " ").trim()
+        if (settings.highlightSyntax != "obsidian") return text
+        val hex = app.marginalia.data.HighlightColors.getOrNull(h.color)?.obsidian
+        return if (hex == null) "==$text==" else "<mark style=\"background: $hex;\">$text</mark>"
+    }
+
+    fun highlightEntry(video: SavedVideo, h: app.marginalia.data.Highlight, settings: AppSettings): String {
+        val body = settings.highlightFormat
+            .replace("{text}", styled(h, settings))
+            .replace("{time}", YouTube.formatTime(h.startSec))
+            .replace("{link}", timeLink(video.meta.id, h.startSec))
+        return if (h.note.isBlank()) body else body + "\n\n" + h.note.trim()
+    }
+
     fun highlightsMarkdown(video: SavedVideo, settings: AppSettings): String =
-        video.highlights.sortedBy { it.startSec }.joinToString("\n\n") { h ->
-            val body = settings.highlightFormat
-                .replace("{text}", h.text.replace("\n", " "))
-                .replace("{time}", YouTube.formatTime(h.startSec))
-                .replace("{link}", timeLink(video.meta.id, h.startSec))
-            if (h.note.isBlank()) body else body + "\n\n" + h.note.trim()
-        }
+        video.highlights.sortedBy { it.startSec }.joinToString("\n\n") { highlightEntry(video, it, settings) }
 
     fun transcriptMarkdown(video: SavedVideo, lines: List<Line>): String {
         val sb = StringBuilder()
@@ -120,7 +130,7 @@ object NoteBuilder {
     private fun quote(s: String) =
         "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace(Regex("\\s*\\n\\s*"), " ").trim() + "\""
 
-    private fun splitList(value: String): List<String> {
+    fun splitList(value: String): List<String> {
         val out = ArrayList<String>()
         val cur = StringBuilder()
         var depth = 0
@@ -136,7 +146,7 @@ object NoteBuilder {
         return out.map { it.trim() }.filter { it.isNotEmpty() }
     }
 
-    private fun yaml(p: BuiltProperty): String {
+    fun yaml(p: BuiltProperty): String {
         val key = if (Regex("^[A-Za-z0-9_ -]+$").matches(p.property.name)) p.property.name else quote(p.property.name)
         val v = p.value.trim()
         return when (p.type) {

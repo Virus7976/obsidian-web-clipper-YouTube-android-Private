@@ -12,7 +12,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val app = application as MarginaliaApp
-        session = MediaSession.Builder(this, app.player.mediaPlayer).build()
+        session = MediaSession.Builder(this, app.player.exo).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session

@@ -6,6 +6,8 @@
     <style name="Theme.Marginalia" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/ink</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:colorAccent">#FFFF6A47</item>
+        <item name="android:colorControlActivated">#FFFF6A47</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>

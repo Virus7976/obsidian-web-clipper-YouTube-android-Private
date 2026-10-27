@@ -36,7 +36,7 @@ data class FetchResult(
  *   captions: Android client -> iOS client -> watch page
  */
 class YouTube(private val settings: () -> AppSettings) {
-    private val http = OkHttpClient.Builder()
+    internal val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
         .build()
@@ -117,7 +117,11 @@ class YouTube(private val settings: () -> AppSettings) {
 
     private fun clientBody(client: String, id: String): Pair<String, Map<String, String>> {
         val s = settings()
-        return if (client == "ANDROID") {
+        return if (client == "ANDROID_VR") {
+            val v = s.vrClientVersion.ifBlank { "1.62.27" }
+            """{"context":{"client":{"clientName":"ANDROID_VR","clientVersion":"$v","deviceMake":"Oculus","deviceModel":"Quest 3","androidSdkVersion":32,"osName":"Android","osVersion":"12L","hl":"en","gl":"US"}},"videoId":"$id","contentCheckOk":true,"racyCheckOk":true}""" to
+                mapOf("User-Agent" to "com.google.android.apps.youtube.vr.oculus/$v (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip")
+        } else if (client == "ANDROID") {
             val v = s.androidClientVersion.ifBlank { "20.10.38" }
             """{"context":{"client":{"clientName":"ANDROID","clientVersion":"$v","androidSdkVersion":34,"osName":"Android","osVersion":"14","hl":"en","gl":"US"}},"videoId":"$id","contentCheckOk":true,"racyCheckOk":true}""" to
                 mapOf("User-Agent" to "com.google.android.youtube/$v (Linux; U; Android 14) gzip")
@@ -128,7 +132,7 @@ class YouTube(private val settings: () -> AppSettings) {
         }
     }
 
-    private suspend fun playerResponse(id: String, client: String): JsonObject = withContext(Dispatchers.IO) {
+    internal suspend fun playerResponse(id: String, client: String): JsonObject = withContext(Dispatchers.IO) {
         val (body, headers) = clientBody(client, id)
         val req = Request.Builder()
             .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
@@ -184,11 +188,34 @@ class YouTube(private val settings: () -> AppSettings) {
             val attrs = m.groupValues[1]
             val t = tAttr.find(attrs)?.groupValues?.get(1)?.toLongOrNull() ?: continue
             val d = dAttr.find(attrs)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-            val raw = m.groupValues[2].replace(Regex("<[^>]+>"), "")
-            val text = unescape(raw).replace(Regex("\\s+"), " ").trim()
-            if (text.isNotEmpty()) out += Cue(t / 1000.0, d / 1000.0, text)
+            val inner = m.groupValues[2]
+            val segs = Regex("<s(\\s[^>]*)?>(.*?)</s>", RegexOption.DOT_MATCHES_ALL).findAll(inner).map { sm ->
+                val off = Regex("""\bt="(\d+)"""").find(sm.groupValues[1])?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                unescape(sm.groupValues[2].replace(Regex("<[^>]+>"), "")) to off / 1000.0
+            }.toList()
+            if (segs.isNotEmpty()) {
+                cueFromSegs(t / 1000.0, d / 1000.0, segs)?.let { out += it }
+            } else {
+                val text = unescape(inner.replace(Regex("<[^>]+>"), "")).replace(Regex("\\s+"), " ").trim()
+                if (text.isNotEmpty()) out += Cue(t / 1000.0, d / 1000.0, text)
+            }
         }
         return out
+    }
+
+    /** Auto captions carry the start of every word. Keep it, so the reader can follow word by word. */
+    private fun cueFromSegs(start: Double, dur: Double, segs: List<Pair<String, Double>>): Cue? {
+        val tokens = ArrayList<String>()
+        val offs = ArrayList<Double>()
+        for ((text, off) in segs) {
+            text.split(Regex("\\s+")).filter { it.isNotEmpty() }.forEach {
+                tokens += it
+                offs += off
+            }
+        }
+        if (tokens.isEmpty()) return null
+        val timed = offs.any { it > 0.0 } && offs.zipWithNext().all { (a, b) -> b >= a }
+        return Cue(start, dur, tokens.joinToString(" "), if (timed) offs else null)
     }
 
     private fun parseJson3(text: String): List<Cue> {
@@ -199,9 +226,11 @@ class YouTube(private val settings: () -> AppSettings) {
             val segs = o["segs"] as? JsonArray ?: continue
             val t = o["tStartMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: continue
             val d = o["dDurationMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
-            val s = segs.joinToString("") { it.jsonObject.str("utf8") ?: "" }
-            val clean = s.replace(Regex("\\s+"), " ").trim()
-            if (clean.isNotEmpty()) out += Cue(t / 1000.0, d / 1000.0, clean)
+            val parts = segs.map { sg ->
+                val so = sg.jsonObject
+                (so.str("utf8") ?: "") to ((so["tOffsetMs"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: 0L) / 1000.0
+            }
+            cueFromSegs(t / 1000.0, d / 1000.0, parts)?.let { out += it }
         }
         return out
     }

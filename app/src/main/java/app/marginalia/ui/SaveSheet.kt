@@ -14,14 +14,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Upload
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -33,6 +38,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,10 +51,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.data.Line
+import app.marginalia.data.NoteRef
+import app.marginalia.data.OmniKind
 import app.marginalia.data.SavedVideo
 import app.marginalia.obsidian.NoteBuilder
 import app.marginalia.obsidian.SendResult
 import app.marginalia.obsidian.Sender
+import app.marginalia.obsidian.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +73,7 @@ fun SaveSheet(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by app.settings.state.collectAsState()
+    val indexes by app.vaults.indexes.collectAsState()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
@@ -83,15 +93,49 @@ fun SaveSheet(
         var folder by remember(templateId) { mutableStateOf(base.folder) }
         var vault by remember(templateId) { mutableStateOf(base.vault) }
         val overrides = remember(templateId) { mutableStateMapOf<String, String>() }
+        val tags = remember(templateId) {
+            mutableStateListOf<String>().apply {
+                base.properties.firstOrNull { it.isTags() }?.let { addAll(NoteBuilder.splitList(it.value).map { t -> t.removePrefix("#").trim('"') }) }
+            }
+        }
+        var detailsOpen by remember { mutableStateOf(false) }
         var previewOpen by remember { mutableStateOf(false) }
+        var pickFolder by remember { mutableStateOf(false) }
+        var pickTags by remember { mutableStateOf(false) }
+        var pickNote by remember { mutableStateOf<String?>(null) }
+        var asking by remember { mutableStateOf<String?>(null) }
 
-        val note = NoteBuilder.build(template, video, lines, settings, overrides.toMap(), name, folder, vault)
+        // Read the vault in the background so the existing-note check and the pickers are fresh.
+        androidx.compose.runtime.LaunchedEffect(vault) { if (vault.isNotBlank()) app.vaults.refresh(vault) }
+        val index = indexes[vault]
+        val existing: NoteRef? = remember(index, video.meta.url) { index?.noteForSource(video.meta.url) }
+
+        val tagsProp = base.properties.firstOrNull { it.isTags() }
+        val note = NoteBuilder.build(
+            template, video, lines, settings,
+            overrides.toMap() + (tagsProp?.let { mapOf(it.property.id to tags.joinToString(",")) } ?: emptyMap()),
+            name, folder, vault,
+        )
+        val mine = note.properties.filter { !it.isTags() && it.property.value.isBlank() }
+        val details = note.properties.filter { !it.isTags() && it.property.value.isNotBlank() }
+        val folderUri = settings.vaultFolders[vault] ?: settings.vaultFolderUri
+
+        fun remember() {
+            app.settings.update {
+                it.copy(
+                    selectedTemplateId = templateId,
+                    vault = vault.ifBlank { it.vault },
+                    vaults = if (vault.isNotBlank()) (it.vaults + vault).distinct() else it.vaults,
+                    recentTags = (tags.toList() + it.recentTags).distinct().take(40),
+                )
+            }
+        }
 
         fun send(kind: String) {
-            app.settings.update { it.copy(selectedTemplateId = templateId, vault = vault.ifBlank { it.vault }, vaults = if (vault.isNotBlank()) (it.vaults + vault).distinct() else it.vaults) }
+            remember()
             scope.launch {
                 val r: SendResult = when (kind) {
-                    "saveFile" -> withContext(Dispatchers.IO) { Sender.saveFile(ctx, note, settings.vaultFolderUri) }
+                    "saveFile" -> withContext(Dispatchers.IO) { Sender.saveFile(ctx, note, folderUri) }
                     "copyToClipboard" -> Sender.copyToClipboard(ctx, note)
                     "share" -> Sender.share(ctx, note)
                     else -> Sender.addToObsidian(ctx, note)
@@ -100,11 +144,49 @@ fun SaveSheet(
             }
         }
 
+        fun update(target: NoteRef) {
+            remember()
+            scope.launch {
+                val old = withContext(Dispatchers.IO) { Sender.readText(ctx, target.uri) }
+                if (old == null) { onDone("Could not read ${target.name}. Add the vault folder in Settings again.", false); return@launch }
+                val merged = Updater.merge(old, note, video, settings)
+                if (!merged.changed) { onDone("${target.name} already has all of this.", true); return@launch }
+                val ok = withContext(Dispatchers.IO) { Sender.writeText(ctx, target.uri, merged.text) }
+                if (ok) {
+                    app.vaults.refresh(vault, force = true)
+                    val bits = listOfNotNull(
+                        merged.addedHighlights.takeIf { it > 0 }?.let { "$it highlight${if (it == 1) "" else "s"}" },
+                        merged.addedProps.takeIf { it > 0 }?.let { "$it propert${if (it == 1) "y" else "ies"}" },
+                    )
+                    onDone("Updated ${target.name}: added ${bits.joinToString(" and ")}.", true)
+                } else onDone("Could not write ${target.name}.", false)
+            }
+        }
+
+        // Where a save would touch the vault, ask first when the video is already there.
+        fun go(kind: String) {
+            if ((kind == "addToObsidian" || kind == "saveFile") && existing != null) asking = kind else send(kind)
+        }
+
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Clip this video", style = MaterialTheme.typography.headlineSmall)
+            Text("Save to Obsidian", style = MaterialTheme.typography.headlineSmall)
+
+            if (existing != null) {
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("You already saved this video", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Text(
+                            existing.path,
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        Text("When you save, I ask if you want to update it or make a new one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    }
+                }
+            }
 
             if (templates.size > 1) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -114,6 +196,35 @@ fun SaveSheet(
                 }
             }
 
+            // ---- the things you fill in
+            mine.forEach { p ->
+                OutlinedTextField(
+                    value = p.value,
+                    onValueChange = { overrides[p.property.id] = it },
+                    label = { Text(p.property.name) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = if (p.property.name.contains("idea", true)) 3 else 1,
+                    maxLines = 8,
+                    shape = MaterialTheme.shapes.large,
+                )
+            }
+
+            if (tagsProp != null) {
+                Text("Tags", style = MaterialTheme.typography.titleSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tags.toList().forEach { t ->
+                        InputChip(selected = true, onClick = { tags.remove(t) }, label = { Text("#$t") })
+                    }
+                    AssistChip(
+                        onClick = { pickTags = true },
+                        label = { Text(if (tags.isEmpty()) "Add tags" else "Add") },
+                        leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) },
+                    )
+                }
+            }
+
+            // ---- where it goes
+            Text("Where it goes", style = MaterialTheme.typography.titleSmall)
             if (settings.vaults.size > 1) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     settings.vaults.forEach { v -> FilterChip(selected = v == vault, onClick = { vault = v }, label = { Text(v) }) }
@@ -124,27 +235,49 @@ fun SaveSheet(
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                 )
             }
-
+            OutlinedButton(
+                onClick = { if (settings.vaultFolders.containsKey(vault)) pickFolder = true },
+                enabled = settings.vaultFolders.containsKey(vault),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(folder.ifBlank { "Vault root" }, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+            if (!settings.vaultFolders.containsKey(vault)) {
+                OutlinedTextField(
+                    value = folder, onValueChange = { folder = it }, label = { Text("Folder") },
+                    supportingText = { Text("Add this vault's folder in Settings to search your folders.") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+            }
             OutlinedTextField(
                 value = name, onValueChange = { name = it }, label = { Text("Note name") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
-            OutlinedTextField(
-                value = folder, onValueChange = { folder = it }, label = { Text("Folder") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true,
-            )
 
-            if (note.properties.isNotEmpty()) {
-                Text("Properties", style = MaterialTheme.typography.titleMedium)
-                note.properties.forEach { p ->
-                    OutlinedTextField(
-                        value = p.value,
-                        onValueChange = { overrides[p.property.id] = it },
-                        label = { Text(p.property.name + if (p.type != "text") "  ·  ${p.type}" else "") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 1,
-                        maxLines = 4,
-                    )
+            // ---- everything else
+            if (details.isNotEmpty()) {
+                Surface(
+                    onClick = { detailsOpen = !detailsOpen },
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth().animateContentSize(),
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            if (detailsOpen) "Hide details" else "Details, ${details.size} filled in for you",
+                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                        )
+                        if (detailsOpen) details.forEach { p ->
+                            OutlinedTextField(
+                                value = p.value,
+                                onValueChange = { overrides[p.property.id] = it },
+                                label = { Text(p.property.name + if (p.type != "text") "  ·  ${p.type}" else "") },
+                                modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 4,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -158,9 +291,7 @@ fun SaveSheet(
                     Text(if (previewOpen) "Hide note" else "Show the note", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     Text(
                         note.markdown,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
+                        fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 17.sp,
                         maxLines = if (previewOpen) Int.MAX_VALUE else 6,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -169,14 +300,14 @@ fun SaveSheet(
             }
 
             val primary = settings.saveBehavior
-            Button(onClick = { send(primary) }, modifier = Modifier.fillMaxWidth().height(56.dp), shapes = ButtonDefaults.shapes()) {
+            Button(onClick = { go(primary) }, modifier = Modifier.fillMaxWidth().height(56.dp), shapes = ButtonDefaults.shapes()) {
                 Icon(iconFor(primary), null, Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(labelFor(primary))
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("addToObsidian", "saveFile", "copyToClipboard", "share").filter { it != primary }.forEach { k ->
-                    OutlinedButton(onClick = { send(k) }) {
+                    OutlinedButton(onClick = { go(k) }) {
                         Icon(iconFor(k), null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(labelFor(k))
@@ -185,8 +316,64 @@ fun SaveSheet(
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
         }
+
+        if (pickFolder) {
+            OmniSheet(
+                vault = vault, title = "Choose a folder",
+                kinds = setOf(OmniKind.Folder, OmniKind.Create),
+                onPick = { item ->
+                    folder = if (item.kind == OmniKind.Create) item.value.trim('/') else item.value
+                    pickFolder = false
+                },
+                onDismiss = { pickFolder = false },
+            )
+        }
+        if (pickTags) {
+            OmniSheet(
+                vault = vault, title = "Add tags",
+                kinds = setOf(OmniKind.Tag, OmniKind.Create),
+                multi = true, selected = tags.toSet(),
+                onPick = { item ->
+                    val t = item.value.removePrefix("#")
+                    if (t.isNotBlank()) { if (t in tags) tags.remove(t) else tags.add(t) }
+                },
+                onDismiss = { pickTags = false },
+            )
+        }
+        if (pickNote != null) {
+            OmniSheet(
+                vault = vault, title = "Update which note?",
+                kinds = setOf(OmniKind.Note),
+                onPick = { item ->
+                    val ref = index?.notes?.firstOrNull { it.path == item.value }
+                    pickNote = null
+                    if (ref != null) update(ref)
+                },
+                onDismiss = { pickNote = null },
+            )
+        }
+        val kind = asking
+        if (kind != null && existing != null) {
+            AlertDialog(
+                onDismissRequest = { asking = null },
+                title = { Text("This video is already in your vault") },
+                text = { Text("${existing.path}\n\nUpdate it, or make a new note?") },
+                confirmButton = {
+                    TextButton(onClick = { asking = null; update(existing) }) { Text("Update it") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { asking = null; pickNote = "pick" }) { Text("Other note") }
+                        TextButton(onClick = { asking = null; send(kind) }) { Text("New note") }
+                    }
+                },
+            )
+        }
     }
 }
+
+private fun app.marginalia.obsidian.BuiltProperty.isTags() =
+    type == "multitext" && property.name.equals("tags", ignoreCase = true)
 
 private fun labelFor(kind: String) = when (kind) {
     "saveFile" -> "Save file"

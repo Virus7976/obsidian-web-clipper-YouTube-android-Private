@@ -1,0 +1,59 @@
+name: Keep playback fresh
+
+# Every week, look for a newer NewPipe Extractor (the library that finds YouTube streams).
+# If there is one, bump it, run the tests and a full build. Only a green build is saved to main.
+# This never makes a release. You cut those yourself.
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the newest NewPipe Extractor
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api repos/TeamNewPipe/NewPipeExtractor/releases/latest --jq .tag_name)
+          current=$(grep -o 'NewPipeExtractor:v[0-9.]*' app/build.gradle.kts | head -1 | cut -d: -f2)
+          echo "latest=$latest current=$current"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ -n "$latest" ] && [ "$latest" != "$current" ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-java@v4
+        if: steps.ver.outputs.changed == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK pieces
+        if: steps.ver.outputs.changed == 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.1.0" > /dev/null
+
+      - name: Bump, test and build
+        if: steps.ver.outputs.changed == 'true'
+        run: |
+          sed -i "s|NewPipeExtractor:${{ steps.ver.outputs.current }}|NewPipeExtractor:${{ steps.ver.outputs.latest }}|" app/build.gradle.kts
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain --no-daemon
+
+      - name: Save the bump
+        if: steps.ver.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts
+          git commit -m "Playback: NewPipe Extractor ${{ steps.ver.outputs.current }} to ${{ steps.ver.outputs.latest }}"
+          git push
