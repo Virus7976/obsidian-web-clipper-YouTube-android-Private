@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -39,6 +40,34 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
             val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
             BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
             val spring = LocalSpring.current
+
+            // Self-healing: when a new release is found (for example a playback fix), say so right away.
+            val update by app.updates.state.collectAsState()
+            var later by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            (update as? app.marginalia.update.UpdateState.Available)?.info?.let { info ->
+                if (later != info.version) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { later = info.version },
+                        title = { androidx.compose.material3.Text("Update ready: ${info.version}") },
+                        text = {
+                            androidx.compose.material3.Text(
+                                info.notes.trim().ifBlank { "A new version is ready." }.take(500),
+                            )
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = { later = info.version; app.updates.installFlow(info) }) {
+                                androidx.compose.material3.Text("Install")
+                            }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(onClick = { later = info.version }) {
+                                androidx.compose.material3.Text("Later")
+                            }
+                        },
+                    )
+                }
+            }
+
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 AnimatedContent(
                     targetState = stack.last(),

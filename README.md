@@ -40,8 +40,10 @@ Unit tests: `./gradlew testDebugUnitTest`. Against the real YouTube:
 Write `docs/releases/v<version>.md`, then run `scripts/release.ps1 -Version <version>`.
 GitHub Actions builds and publishes the APK. See `.github/workflows/release.yml`.
 
-A weekly workflow (`update-playback.yml`) bumps NewPipe Extractor, runs the tests and a build,
-and saves the bump only if both pass. It never makes a release.
+A daily workflow (`update-playback.yml`) looks for a newer NewPipe Extractor. If there is one it
+bumps it, runs the tests and a release build, and only if both pass it saves the bump, makes a
+patch release and publishes it. The app finds that release and shows an "Update ready" pop-up,
+so a broken stream finder heals itself. Piped and Invidious are read live and need no release.
 
 ## Built to need few updates
 

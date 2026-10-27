@@ -256,6 +256,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     )
 
     var tview by remember { mutableStateOf<TranscriptView?>(null) }
+    LaunchedEffect(ps.value.error) { if (ps.value.error != null) app.updates.checkSoon() }
     var away by remember { mutableStateOf(false) }
     var editingId by remember(videoId) { mutableStateOf<String?>(null) }
     LaunchedEffect(settings.autoScroll) { if (!settings.autoScroll) away = false }

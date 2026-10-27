@@ -70,6 +70,11 @@ class SelfUpdate(private val context: Context, private val settings: SettingsSto
         if (s.autoCheckUpdates && System.currentTimeMillis() - s.lastUpdateCheck > 12 * 3600_000L) check()
     }
 
+    /** Called when playback fails: a fix may already be out. At most once every ten minutes. */
+    fun checkSoon() {
+        if (System.currentTimeMillis() - settings.value.lastUpdateCheck > 10 * 60_000L) check()
+    }
+
     fun check() {
         if (_state.value is UpdateState.Checking || _state.value is UpdateState.Downloading) return
         _state.value = UpdateState.Checking

@@ -1,20 +1,23 @@
 name: Keep playback fresh
 
-# Every week, look for a newer NewPipe Extractor (the library that finds YouTube streams).
-# If there is one, bump it, run the tests and a full build. Only a green build is saved to main.
-# This never makes a release. You cut those yourself.
+# Every day, look for a newer NewPipe Extractor (the library that finds YouTube streams).
+# If there is one: bump it, run the tests, and do a full build.
+# If all of that is green, save the bump, make a patch release, and publish it.
+# The app checks for releases and shows a pop-up, so playback heals itself.
+# If anything fails, nothing is saved and nothing is released.
 on:
   schedule:
-    - cron: '17 5 * * 1'
+    - cron: '17 5 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   bump:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -47,13 +50,30 @@ jobs:
         run: |
           sed -i "s|NewPipeExtractor:${{ steps.ver.outputs.current }}|NewPipeExtractor:${{ steps.ver.outputs.latest }}|" app/build.gradle.kts
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain --no-daemon
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease --console=plain --no-daemon
 
-      - name: Save the bump
+      - name: Make the patch release
         if: steps.ver.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          old=$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | head -1 | cut -d'"' -f2)
+          code=$(grep -o 'versionCode = [0-9]*' app/build.gradle.kts | head -1 | grep -o '[0-9]*$')
+          new="${old%.*}.$(( ${old##*.} + 1 ))"
+          sed -i "s|versionName = \"$old\"|versionName = \"$new\"|; s|versionCode = $code|versionCode = $(( code + 1 ))|" app/build.gradle.kts
+          cat > "docs/releases/v${new}.md" <<NOTES
+          ## Marginalia ${new}
+
+          Playback fix. The stream finder (NewPipe Extractor) moved from ${{ steps.ver.outputs.current }} to ${{ steps.ver.outputs.latest }}.
+          This release was made by the daily playback workflow after the tests and a full build passed.
+          If a video would not play, update and try again.
+          NOTES
+          sed -i 's/^          //' "docs/releases/v${new}.md"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/build.gradle.kts
-          git commit -m "Playback: NewPipe Extractor ${{ steps.ver.outputs.current }} to ${{ steps.ver.outputs.latest }}"
-          git push
+          git add app/build.gradle.kts "docs/releases/v${new}.md"
+          git commit -m "Playback: NewPipe Extractor ${{ steps.ver.outputs.current }} to ${{ steps.ver.outputs.latest }} (v${new})"
+          git tag -a "v${new}" -m "Marginalia v${new}"
+          git push origin HEAD "v${new}"
+          # a tag pushed by a workflow does not start other workflows, so start the release by hand
+          gh workflow run release.yml -f tag="v${new}"
