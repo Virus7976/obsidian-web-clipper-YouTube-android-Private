@@ -1,0 +1,189 @@
+{
+  "general_settings": {
+    "betaFeatures": false,
+    "legacyMode": false,
+    "openBehavior": "popup",
+    "saveBehavior": "addToObsidian",
+    "showMoreActionsButton": false,
+    "silentOpen": false
+  },
+  "highlighter_settings": {
+    "alwaysShowHighlights": true,
+    "highlightBehavior": "replace-content",
+    "highlighterEnabled": true
+  },
+  "interpreter_settings": {
+    "defaultPromptContext": "",
+    "interpreterAutoRun": false,
+    "interpreterEnabled": false,
+    "interpreterModel": "",
+    "models": [],
+    "providers": []
+  },
+  "migrationVersion": 1,
+  "property_types": [
+    {
+      "defaultValue": "{{title}}",
+      "name": "title",
+      "type": "text"
+    },
+    {
+      "name": "source",
+      "type": "text"
+    },
+    {
+      "name": "author",
+      "type": "multitext"
+    },
+    {
+      "name": "published",
+      "type": "date"
+    },
+    {
+      "defaultValue": "{{date}}",
+      "name": "created",
+      "type": "date"
+    },
+    {
+      "defaultValue": "{{description}}",
+      "name": "description",
+      "type": "text"
+    },
+    {
+      "name": "tags",
+      "type": "multitext"
+    },
+    {
+      "name": "Big Idea",
+      "type": "text"
+    },
+    {
+      "name": "Tag",
+      "type": "text"
+    },
+    {
+      "name": "Tags",
+      "type": "text"
+    }
+  ],
+  "reader_settings": {
+    "appearance": "auto",
+    "autoScroll": false,
+    "blendImages": true,
+    "colorLinks": false,
+    "customCss": "",
+    "darkTheme": "same",
+    "defaultFont": "",
+    "followLinks": true,
+    "fontSize": 13,
+    "fonts": [],
+    "highlightActiveLine": true,
+    "lightTheme": "default",
+    "lineHeight": 1.6,
+    "maxWidth": 38,
+    "pinPlayer": true
+  },
+  "stats": {
+    "addToObsidian": 18,
+    "copyToClipboard": 0,
+    "saveFile": 0,
+    "share": 0
+  },
+  "template_17706624967972mb648x4n": {
+    "id": "17706624967972mb648x4n",
+    "name": "Default",
+    "behavior": "create",
+    "noteNameFormat": "{{title}}",
+    "path": "Clippings",
+    "noteContentFormat": "{{content}}",
+    "context": "",
+    "properties": [
+      {
+        "id": "1770662496797ow2mbftcx",
+        "name": "title",
+        "value": "{{title}}"
+      },
+      {
+        "id": "1770662496797gh5hvtckb",
+        "name": "source",
+        "value": "{{url}}"
+      },
+      {
+        "id": "1770662496797u52aa5xcw",
+        "name": "author",
+        "value": "{{author|split:\", \"|wikilink|join}}"
+      },
+      {
+        "id": "1770662496797tdiq8tluj",
+        "name": "published",
+        "value": "{{published}}"
+      },
+      {
+        "id": "1770662496797piqhalh2m",
+        "name": "created",
+        "value": "{{date}}"
+      },
+      {
+        "id": "1770662496797z6cqnnq4v",
+        "name": "description",
+        "value": "{{description}}"
+      },
+      {
+        "id": "1770662496797a4hrz4dg0",
+        "name": "tags",
+        "value": "clippings"
+      }
+    ],
+    "triggers": []
+  },
+  "template_17917187268313zuwbqrlw": {
+    "id": "17917187268313zuwbqrlw",
+    "name": "Big Idea",
+    "behavior": "create",
+    "noteNameFormat": "{{title}}",
+    "path": "Clippings",
+    "noteContentFormat": "{{content}}\n\n[[{{date|date:\"YYYY-MM-DD\"}}]]",
+    "properties": [
+      {
+        "id": "1791718832278omgf0s116",
+        "name": "source",
+        "value": "{{url}}",
+        "type": "text"
+      },
+      {
+        "id": "179171884464164uzrqxb4",
+        "name": "author",
+        "value": "{{author}}",
+        "type": "multitext"
+      },
+      {
+        "id": "1791718856886zw2xrra7c",
+        "name": "published",
+        "value": "{{published}}",
+        "type": "date"
+      },
+      {
+        "id": "1791718874173xsiqsmmqh",
+        "name": "Big Idea",
+        "value": "",
+        "type": "text"
+      },
+      {
+        "id": "17922813123402t9fojing",
+        "name": "tags",
+        "value": "",
+        "type": "multitext"
+      }
+    ],
+    "triggers": [],
+    "context": "",
+    "vault": "Liam's Git Vault"
+  },
+  "template_list": [
+    "17917187268313zuwbqrlw",
+    "17706624967972mb648x4n"
+  ],
+  "vaults": [
+    "Liam's Git Vault"
+  ]
+}
