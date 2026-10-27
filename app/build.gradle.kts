@@ -18,13 +18,27 @@ android {
         versionName = "1.0.0"
     }
 
+    // The release key never lives in the repo. GitHub passes it in through secrets (see
+    // .github/workflows/release.yml). Without it the build falls back to the debug key,
+    // which installs fine but is a different key on every machine.
+    val keystorePath = System.getenv("KEYSTORE_FILE")
+    if (keystorePath != null) {
+        signingConfigs {
+            create("sideload") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS") ?: "marginalia"
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the local debug key so the APK installs directly (sideload).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("sideload") ?: signingConfigs.getByName("debug")
         }
     }
 
