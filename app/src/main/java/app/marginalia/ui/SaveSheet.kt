@@ -3,6 +3,10 @@ package app.marginalia.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -120,6 +124,26 @@ fun SaveSheet(
         val index = key?.let { indexes[it] }
         val existing: NoteRef? = remember(index, video.meta.url) { index?.noteForSource(video.meta.url) }
 
+        // The note that is already there, so the sheet can show what it has (Settings > Obsidian).
+        val existingText by androidx.compose.runtime.produceState<String?>(null, existing?.uri, settings.prefillExisting) {
+            value = if (settings.prefillExisting) existing?.uri?.let { u -> withContext(Dispatchers.IO) { Sender.readText(ctx, u) } } else null
+        }
+        var prefilled by remember(existing?.path, templateId) { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(existingText, templateId) {
+            val text = existingText ?: return@LaunchedEffect
+            if (prefilled) return@LaunchedEffect
+            val have = Updater.readValues(text)
+            base.properties.forEach { p ->
+                if (!p.isTags()) have[p.property.name.lowercase()]?.takeIf { it.isNotBlank() }?.let { overrides[p.property.id] = it }
+            }
+            have["tags"]?.let { v ->
+                NoteBuilder.splitList(v).map { it.removePrefix("#").trim('"') }
+                    .filter { t -> t.isNotBlank() && tags.none { it.equals(t, true) } }
+                    .forEach { tags.add(it) }
+            }
+            prefilled = true
+        }
+
         val tagsProp = base.properties.firstOrNull { it.isTags() }
         val note = NoteBuilder.build(
             template, video, lines, settings,
@@ -168,7 +192,7 @@ fun SaveSheet(
             scope.launch {
                 val old = withContext(Dispatchers.IO) { Sender.readText(ctx, target.uri) }
                 if (old == null) { onDone("Could not read ${target.name}. Add the vault folder in Settings again.", false); return@launch }
-                val merged = Updater.merge(old, note, video, settings)
+                val merged = Updater.merge(old, note, video, settings, mineIds)
                 if (!merged.changed) { onDone("${target.name} already has all of this.", true); return@launch }
                 val ok = withContext(Dispatchers.IO) { Sender.writeText(ctx, target.uri, merged.text) }
                 if (ok) {
@@ -193,18 +217,33 @@ fun SaveSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Save to Obsidian", style = MaterialTheme.typography.headlineSmall)
-            if (memo != null) Text("Filled in from your last clip of this video.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                coil3.compose.AsyncImage(
+                    video.meta.thumb, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.width(88.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(14.dp)),
+                )
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(video.meta.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        if (memo != null) "Filled in from your last clip." else video.meta.author,
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    )
+                }
+            }
 
             if (existing != null) {
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
+                Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("You already saved this video", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                         Text(
                             existing.path,
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                        Text("When you save, I ask if you want to update it or make a new one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Text(
+                            if (prefilled) "What the note has is filled in below. Add to it, then choose Update it." else "When you save, I ask if you want to update it or make a new one.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
                     }
                 }
             }
@@ -231,7 +270,7 @@ fun SaveSheet(
             }
 
             if (tagsProp != null) {
-                Text("Tags", style = MaterialTheme.typography.titleSmall)
+                Text("Tags", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     tags.toList().forEach { t ->
                         InputChip(selected = true, onClick = { tags.remove(t) }, label = { Text("#$t") })
@@ -245,7 +284,7 @@ fun SaveSheet(
             }
 
             // ---- where it goes
-            Text("Where it goes", style = MaterialTheme.typography.titleSmall)
+            Text("Where it goes", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (settings.vaults.size > 1) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     settings.vaults.forEach { v -> FilterChip(selected = v == vault, onClick = { vault = v }, label = { Text(v) }) }
@@ -253,13 +292,14 @@ fun SaveSheet(
             } else {
                 OutlinedTextField(
                     value = vault, onValueChange = { vault = it }, label = { Text("Vault") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
                 )
             }
             OutlinedButton(
                 onClick = { if ((key != null)) pickFolder = true },
                 enabled = (key != null),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(18.dp),
             ) {
                 Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -269,23 +309,23 @@ fun SaveSheet(
                 OutlinedTextField(
                     value = folder, onValueChange = { folder = it }, label = { Text("Folder") },
                     supportingText = { Text("Add this vault's folder in Settings to search your folders.") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
                 )
             }
             OutlinedTextField(
                 value = name, onValueChange = { name = it }, label = { Text("Note name") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
             )
 
             // ---- everything else
             if (details.isNotEmpty()) {
                 Surface(
                     onClick = { detailsOpen = !detailsOpen },
-                    shape = MaterialTheme.shapes.large,
+                    shape = RoundedCornerShape(22.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     modifier = Modifier.fillMaxWidth().animateContentSize(),
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             if (detailsOpen) "Hide details" else "Details, ${details.size} filled in for you",
                             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
@@ -295,7 +335,7 @@ fun SaveSheet(
                                 value = p.value,
                                 onValueChange = { overrides[p.property.id] = it },
                                 label = { Text(p.property.name + if (p.type != "text") "  ·  ${p.type}" else "") },
-                                modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 4,
+                                modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 4, shape = RoundedCornerShape(18.dp),
                             )
                         }
                     }

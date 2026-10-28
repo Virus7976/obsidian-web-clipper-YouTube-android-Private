@@ -1,6 +1,8 @@
 package app.marginalia.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -144,36 +146,94 @@ fun LibraryControls(
 @Composable
 fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: () -> Unit) {
     val app = LocalApp.current
-    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val videos by app.library.videos.collectAsState()
     val playlists by app.playlists.all.collectAsState()
     val saved by app.audio.saved.collectAsState()
     val progress by app.audio.progress.collectAsState()
     val failed by app.audio.failed.collectAsState()
     val queue by app.queue.ids.collectAsState()
+    val scheme = MaterialTheme.colorScheme
     val v = videos.firstOrNull { it.meta.id == videoId }
     if (v == null) { onDismiss(); return }
+    var confirmRemove by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(v.meta.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // header: what this video is
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(
+                    v.meta.thumb, null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.width(104.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(16.dp)),
+                )
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(v.meta.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(v.meta.author, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
 
-            // tags and category
-            val everyTag = remember(videos) { videos.flatMap { it.tags }.distinctBy { it.lowercase() } }
+            // quick actions
+            val isSaved = videoId in saved
+            val busy = progress[videoId]
+            val inQueue = videoId in queue
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ActionTile(Icons.Rounded.PlayArrow, "Play next", false, Modifier.weight(1f)) { app.queue.playNext(videoId); onDismiss() }
+                ActionTile(Icons.Rounded.QueueMusic, if (inQueue) "In queue" else "Queue", inQueue, Modifier.weight(1f)) {
+                    if (inQueue) app.queue.remove(videoId) else app.queue.add(videoId)
+                }
+                ActionTile(
+                    if (isSaved) Icons.Rounded.CheckCircle else Icons.Rounded.Download,
+                    when {
+                        busy != null -> if (busy < 0f) "Saving…" else "${(busy * 100).toInt()}%"
+                        isSaved -> "Offline"
+                        videoId in failed -> "Retry"
+                        else -> "Save audio"
+                    },
+                    isSaved || busy != null, Modifier.weight(1f), busy = busy,
+                ) {
+                    when {
+                        busy != null -> {}
+                        isSaved -> {
+                            app.audio.remove(videoId)
+                            android.widget.Toast.makeText(ctx, "Removed the saved audio.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        else -> app.audio.saveAsync(videoId, v.meta.title)
+                    }
+                }
+                ActionTile(Icons.Rounded.OpenInNew, "Obsidian", false, Modifier.weight(1f)) { if (openVideoNote(ctx, app, v)) onDismiss() }
+            }
+            if (isSaved) Text(
+                "Audio is on this phone, ${"%.0f".format(app.audio.sizeMb(videoId))} MB. Tap Offline to remove it.",
+                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+            )
+            if (videoId in failed && busy == null) Text(
+                "The last try failed. Check your connection, then tap Retry.",
+                style = MaterialTheme.typography.bodySmall, color = scheme.error,
+            )
+
+            // organize
+            SectionTitle("Category")
             val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
-            Text("Category", style = MaterialTheme.typography.labelLarge)
             var cat by remember(videoId) { mutableStateOf(v.category) }
             OutlinedTextField(
                 value = cat, onValueChange = { cat = it; app.library.edit(videoId) { x -> x.copy(category = it.trim()) } },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text("For example: Learning") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
+                placeholder = { Text("For example: Learning") },
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                everyCategory.filterNot { it.equals(cat.trim(), true) }.take(8).forEach { c ->
-                    FilterChip(selected = false, onClick = { cat = c; app.library.edit(videoId) { x -> x.copy(category = c) } }, label = { Text(c) })
+            val catSuggestions = everyCategory.filterNot { it.equals(cat.trim(), true) }.take(10)
+            if (catSuggestions.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(catSuggestions, key = { "sc$it" }) { c ->
+                        FilterChip(selected = false, onClick = { cat = c; app.library.edit(videoId) { x -> x.copy(category = c) } }, label = { Text(c) })
+                    }
                 }
             }
-            Text("Tags", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+            SectionTitle("Tags")
+            if (v.tags.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 v.tags.forEach { t ->
                     InputChip(
                         selected = true, onClick = { app.library.edit(videoId) { x -> x.copy(tags = x.tags - t) } },
@@ -188,59 +248,24 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 newTag = ""
             }
             OutlinedTextField(
-                value = newTag, onValueChange = { newTag = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                value = newTag, onValueChange = { newTag = it }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
                 placeholder = { Text("Add a tag") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { addTag(newTag) }),
                 trailingIcon = { if (newTag.isNotBlank()) IconButton(onClick = { addTag(newTag) }) { Icon(Icons.Rounded.Add, "Add tag") } },
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                everyTag.filter { t -> v.tags.none { it.equals(t, true) } }.take(10).forEach { t ->
-                    FilterChip(selected = false, onClick = { addTag(t) }, label = { Text("#$t") })
-                }
-            }
-
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            FilledTonalButton(onClick = { if (openVideoNote(ctx, app, v)) onDismiss() }, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Open note in Obsidian")
-            }
-
-            // queue
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { app.queue.playNext(videoId); onDismiss() }, shapes = ButtonDefaults.shapes()) { Text("Play next") }
-                FilledTonalButton(onClick = { app.queue.add(videoId); onDismiss() }, shapes = ButtonDefaults.shapes()) {
-                    Text(if (videoId in queue) "In queue" else "Add to queue")
-                }
-            }
-
-            // offline audio
-            val isSaved = videoId in saved
-            val busy = progress[videoId]
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                when {
-                    busy != null -> {
-                        if (busy >= 0f) androidx.compose.material3.CircularProgressIndicator(progress = { busy }, modifier = Modifier.size(22.dp), strokeWidth = 3.dp)
-                        else androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 3.dp)
-                        Text(if (busy < 0f) "Starting…" else "Saving audio ${(busy * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    isSaved -> {
-                        Text("Audio is on this phone (${"%.0f".format(app.audio.sizeMb(videoId))} MB)", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { app.audio.remove(videoId) }) { Text("Remove") }
-                    }
-                    else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (videoId in failed) Text("The last try failed. Check your connection, then try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                        FilledTonalButton(onClick = { app.audio.saveAsync(videoId, v.meta.title) }, shapes = ButtonDefaults.shapes()) {
-                            Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (videoId in failed) "Try again" else "Save audio to play offline")
-                        }
+            val everyTag = remember(videos) { videos.flatMap { it.tags }.distinctBy { it.lowercase() } }
+            val tagSuggestions = everyTag.filter { t -> v.tags.none { it.equals(t, true) } }.take(12)
+            if (tagSuggestions.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(tagSuggestions, key = { "st$it" }) { t ->
+                        FilterChip(selected = false, onClick = { addTag(t) }, label = { Text("#$t") })
                     }
                 }
             }
 
-            // playlists
             if (playlists.isNotEmpty()) {
-                Text("Playlists", style = MaterialTheme.typography.labelLarge)
+                SectionTitle("Playlists")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     playlists.forEach { p ->
                         val inIt = videoId in p.videoIds
@@ -253,15 +278,64 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // footer
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { app.library.edit(videoId) { it.copy(pinned = !it.pinned) } }) {
                     Icon(Icons.Rounded.PushPin, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (v.pinned) "Unpin" else "Pin")
                 }
                 if (inPlaylist) TextButton(onClick = { app.library.edit(videoId) { it.copy(playlistId = "") }; onDismiss() }) { Text("Move to library") }
-                TextButton(onClick = { removeVideo(app, videoId); onDismiss() }) {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { confirmRemove = true }, colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = scheme.error)) {
                     Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remove")
                 }
             }
+        }
+    }
+
+    if (confirmRemove) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Remove this video?") },
+            text = { Text("Its highlights and saved audio on this phone are removed too. Your Obsidian note is not touched.") },
+            confirmButton = { TextButton(onClick = { confirmRemove = false; removeVideo(app, videoId); onDismiss() }) { Text("Remove") } },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Keep") } },
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+}
+
+/** One big, rounded button with an icon over a short label. Filled when it is switched on. */
+@Composable
+private fun ActionTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    busy: Float? = null,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    androidx.compose.material3.Surface(
+        onClick = {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
+            onClick()
+        },
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        color = if (active) scheme.primaryContainer else scheme.surfaceContainerHigh,
+    ) {
+        Column(Modifier.padding(vertical = 14.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val tint = if (active) scheme.onPrimaryContainer else scheme.onSurface
+            if (busy != null) {
+                if (busy >= 0f) androidx.compose.material3.CircularProgressIndicator(progress = { busy }, modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+                else androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+            } else Icon(icon, null, Modifier.size(24.dp), tint = tint)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1)
         }
     }
 }

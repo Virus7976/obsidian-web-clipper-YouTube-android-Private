@@ -174,6 +174,8 @@ data class AppSettings(
     val autoPlay: Boolean = true,
     // obsidian
     val saveBehavior: String = "addToObsidian", // addToObsidian | saveFile | copyToClipboard | share
+    /** When the video is already in the vault, fill the save sheet from that note so you can add to it. */
+    val prefillExisting: Boolean = true,
     val vaults: List<String> = emptyList(),
     val vault: String = "",
     val vaultFolderUri: String = "",

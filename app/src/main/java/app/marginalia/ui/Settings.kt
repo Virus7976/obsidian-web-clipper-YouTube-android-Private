@@ -399,6 +399,10 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add vault") }
                 }
 
+                SwitchRow(
+                    "Fill the sheet from my note", "When a video is already in your vault, the save sheet shows what that note has, so you can add to it.",
+                    s.prefillExisting,
+                ) { v -> set { it.copy(prefillExisting = v) } }
                 Label("Added to every clip")
                 Text(
                     "These go on every clip, whatever the template says. You can still remove one while you save.",
@@ -608,7 +612,7 @@ private object SettingsKeys {
     const val reading = "reading font serif sans system custom own text size line height width length short medium long pin player mark current line follow along scroll timestamps"
     const val highlights = "highlights highlight highlighter always show replace content holding word selects sentence paragraph in the note obsidian plain text syntax layout each quote callout bullet inline"
     const val updates = "updates update version install installer android shizuku wireless adb pair pairing code port check on its own sources github repo token mirror skip release"
-    const val obsidian = "obsidian when i tap clip open save file copy share vaults vault folder reindex index tags notes search always every automatic auto properties property templates template new import export presets clipper settings reset"
+    const val obsidian = "obsidian when i tap clip open save file copy share vaults vault folder reindex index tags notes search fill prefill existing already saved always every automatic auto properties property templates template new import export presets clipper settings reset"
     const val lock = "lock screen lockscreen player cover minimal words background blurred theme colour black clock date transcript spoken highlight button display over other apps overlay permission"
     const val playback = "playback captions start playing open a video background audio screen off notification keep screen on"
     const val advanced = "advanced client version android ios vr youtube innertube"

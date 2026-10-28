@@ -29,7 +29,39 @@ object Updater {
         return (inline + listed).map { it.trim().trim('"', '\'') }.filter { it.isNotEmpty() }
     }
 
-    fun merge(existing: String, note: BuiltNote, video: SavedVideo, settings: AppSettings): Merged {
+    /** The frontmatter as plain text values, by lower-case property name. A list is joined with commas. */
+    fun readValues(text: String): Map<String, String> {
+        val fm = ObsidianText.splitFrontmatter(text).first
+        val out = LinkedHashMap<String, String>()
+        var key: String? = null
+        val items = ArrayList<String>()
+        fun unquote(v: String) = v.trim().trim('"', '\'')
+        fun flush() {
+            val k = key ?: return
+            if (items.isNotEmpty()) out[k] = items.joinToString(",")
+            items.clear()
+        }
+        val head = Regex("^([^\\s#-][^:]*?)\\s*:\\s*(.*)$")
+        for (line in fm.lines()) {
+            val m = head.find(line)
+            if (m != null) {
+                flush()
+                key = unquote(m.groupValues[1]).lowercase()
+                val inline = m.groupValues[2].trim()
+                if (inline.isNotEmpty()) {
+                    out[key] = inline.removePrefix("[").removeSuffix("]").split(',').joinToString(",") { unquote(it) }
+                    key = null
+                }
+            } else if (key != null && line.trim().startsWith("-")) {
+                items += unquote(line.trim().removePrefix("-"))
+            }
+        }
+        flush()
+        return out
+    }
+
+    /** [replace] lists property ids whose new value should replace the one already in the note. */
+    fun merge(existing: String, note: BuiltNote, video: SavedVideo, settings: AppSettings, replace: Set<String> = emptySet()): Merged {
         val (fm0, body0) = ObsidianText.splitFrontmatter(existing)
         var fm = fm0
         var addedProps = 0
@@ -49,6 +81,13 @@ object Updater {
                     val merged = (have + fresh).joinToString(",")
                     val rebuilt = NoteBuilder.yaml(p.copy(value = merged)).trimEnd('\n')
                     fm = fm.replaceRange(block.range, rebuilt)
+                    addedProps++
+                }
+            } else if (p.property.id in replace) {
+                // A box you filled in on the sheet. If you changed what the note had, the note changes too.
+                val cur = readValues("---\n" + block.value + "\n---\n")[key.lowercase()].orEmpty()
+                if (cur.trim() != value) {
+                    fm = fm.replaceRange(block.range, NoteBuilder.yaml(p).trimEnd('\n'))
                     addedProps++
                 }
             }
