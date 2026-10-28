@@ -428,7 +428,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             tv.onAway = { away = it && settings.autoScroll }
                             tv.onTapWord = { w ->
                                 val h = video.highlights.firstOrNull { it.w0 >= 0 && w >= it.w0 && w <= it.w1 }
-                                if (h != null) { editingId = h.id; true } else false
+                                // In full screen a stray tap must not jump the audio.
+                                if (h != null) { editingId = h.id; true } else immersive
                             }
                             tv.onPaint = { a, b, color ->
                                 val next = Highlights.apply(video.highlights, d.words, d::plainText, a, b, color)
