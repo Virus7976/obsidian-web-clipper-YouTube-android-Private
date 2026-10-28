@@ -65,7 +65,8 @@ class SettingsStore(context: Context) : JsonFileStore<AppSettings>(File(context.
             val keep = s.vaults.filter { it in s.vaultFolders || it == s.vault }
             s = s.copy(vaults = keep, vault = if (s.vault in keep) s.vault else keep.firstOrNull().orEmpty())
         }
-        return s.copy(tabsVersion = 2)
+        if (s.tabsVersion < 3) s = s.copy(lockStyle = "page", lockBackground = "black")
+        return s.copy(tabsVersion = 3)
     }
 
     override fun encode(value: AppSettings) = storeJson.encodeToString(AppSettings.serializer(), value)

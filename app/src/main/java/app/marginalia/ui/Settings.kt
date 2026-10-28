@@ -556,21 +556,29 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         )
                     }, shapes = ButtonDefaults.shapes()) { Text("Allow display over other apps") }
                 }
-                Label("Style")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("cover" to "Cover", "minimal" to "Minimal", "transcript" to "Words").forEach { (id, name) ->
-                        androidx.compose.material3.FilterChip(selected = s.lockStyle == id, onClick = { set { it.copy(lockStyle = id) } }, label = { Text(name) })
-                    }
-                }
+                Label("Layout")
+                Choices(listOf("page" to "Page", "cover" to "Cover and page", "minimal" to "Minimal"), s.lockStyle) { v -> set { it.copy(lockStyle = v) } }
+                Text(
+                    "Page puts the transcript first, so you can read and highlight. Minimal shows only what is playing.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Label("Background")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("art" to "Blurred cover", "accent" to "Theme colour", "black" to "Black").forEach { (id, name) ->
-                        androidx.compose.material3.FilterChip(selected = s.lockBackground == id, onClick = { set { it.copy(lockBackground = id) } }, label = { Text(name) })
-                    }
-                }
-                SwitchRow("Clock and date", null, s.lockClock) { v -> set { it.copy(lockClock = v) } }
-                SwitchRow("Show the words being spoken", null, s.lockTranscript) { v -> set { it.copy(lockTranscript = v) } }
-                SwitchRow("Highlight button", "Marks the sentence you are hearing.", s.lockHighlight) { v -> set { it.copy(lockHighlight = v) } }
+                Choices(listOf("black" to "Black", "art" to "Blurred cover", "accent" to "Theme colour"), s.lockBackground) { v -> set { it.copy(lockBackground = v) } }
+                Label("Accent")
+                Choices(listOf("theme" to "Theme colour", "white" to "White"), s.lockAccent) { v -> set { it.copy(lockAccent = v) } }
+                Label("Text size  ${s.lockTextSize.toInt()}")
+                androidx.compose.material3.Slider(
+                    value = s.lockTextSize, onValueChange = { v -> set { it.copy(lockTextSize = v.toInt().toFloat()) } },
+                    valueRange = 14f..34f,
+                )
+                SwitchRow("Clock", null, s.lockClock) { v -> set { it.copy(lockClock = v) } }
+                if (s.lockClock) Choices(listOf("small" to "Small clock", "large" to "Large clock and date"), s.lockClockSize) { v -> set { it.copy(lockClockSize = v) } }
+                SwitchRow("Video title", null, s.lockTitle) { v -> set { it.copy(lockTitle = v) } }
+                SwitchRow("Seek bar", null, s.lockSeekBar) { v -> set { it.copy(lockSeekBar = v) } }
+                SwitchRow("Highlight button", "Marks the sentence you are hearing. You can also select words and highlight them.", s.lockHighlight) { v -> set { it.copy(lockHighlight = v) } }
+                SwitchRow("Follow along", "The text scrolls with the audio. Scroll away and a Sync button appears.", s.lockFollow) { v -> set { it.copy(lockFollow = v) } }
+                SwitchRow("Start with the controls hidden", "Drag the bar above the controls to show or hide them.", s.lockHideControls) { v -> set { it.copy(lockHideControls = v) } }
+                SwitchRow("Keep the screen on", "While the lock screen player is showing. Uses more battery.", s.lockKeepOn) { v -> set { it.copy(lockKeepOn = v) } }
                 FilledTonalButton(onClick = { LockScreenActivity.launch(lockCtx) }, shapes = ButtonDefaults.shapes()) { Text("Preview now") }
             } }
 

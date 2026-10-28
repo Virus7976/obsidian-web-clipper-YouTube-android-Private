@@ -57,8 +57,11 @@ object ClipperImport {
         }
         if (types.isNotEmpty()) out = out.copy(propertyTypes = out.propertyTypes + types)
 
-        // Vault names in an imported file are not added to the vault list. They belong to the other
-        // device. Only vaults you add in Settings are yours.
+        val vaults = (root["vaults"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
+        if (vaults.isNotEmpty()) {
+            val merged = (out.vaults + vaults).distinct()
+            out = out.copy(vaults = merged, vault = out.vault.ifBlank { merged.first() })
+        }
 
         val order = (root["template_list"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
         val found = HashMap<String, ClipTemplate>()

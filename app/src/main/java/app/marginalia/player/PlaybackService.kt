@@ -39,18 +39,22 @@ class PlaybackService : MediaSessionService() {
         )
         val app = application as MarginaliaApp
         val highlight = SessionCommand(ACTION_HIGHLIGHT, Bundle.EMPTY)
+        val back10 = SessionCommand(ACTION_BACK10, Bundle.EMPTY)
+        val fwd10 = SessionCommand(ACTION_FWD10, Bundle.EMPTY)
 
         // Back 10 and forward 10 take the back and forward slots, where "previous" and "next" would be.
         // Highlight goes in the extra slot. Play, pause and the seek bar are drawn by Android itself.
         val buttons = ImmutableList.of(
+            // These are custom actions, the same kind as Highlight. Phone makers draw custom actions
+            // on their media card, but they often skip the standard seek buttons.
             CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
                 .setDisplayName("Back 10 seconds")
-                .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+                .setSessionCommand(back10)
                 .setSlots(CommandButton.SLOT_BACK)
                 .build(),
             CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
                 .setDisplayName("Forward 10 seconds")
-                .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+                .setSessionCommand(fwd10)
                 .setSlots(CommandButton.SLOT_FORWARD)
                 .build(),
             CommandButton.Builder(CommandButton.ICON_UNDEFINED)
@@ -65,7 +69,7 @@ class PlaybackService : MediaSessionService() {
             .setMediaButtonPreferences(buttons)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(highlight).build()
+                    val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(highlight).add(back10).add(fwd10).build()
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(commands)
                         .build()
@@ -77,6 +81,10 @@ class PlaybackService : MediaSessionService() {
                     customCommand: SessionCommand,
                     args: Bundle,
                 ): ListenableFuture<SessionResult> {
+                    when (customCommand.customAction) {
+                        ACTION_BACK10 -> app.player.skip(-10.0)
+                        ACTION_FWD10 -> app.player.skip(10.0)
+                    }
                     if (customCommand.customAction == ACTION_HIGHLIGHT) {
                         val message = QuickHighlight.run(app)
                         Handler(Looper.getMainLooper()).post { Toast.makeText(app, message, Toast.LENGTH_SHORT).show() }
@@ -107,6 +115,8 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_HIGHLIGHT = "app.marginalia.HIGHLIGHT"
+        const val ACTION_BACK10 = "app.marginalia.BACK10"
+        const val ACTION_FWD10 = "app.marginalia.FWD10"
     }
 }
 

@@ -192,11 +192,19 @@ data class AppSettings(
     val keepScreenOn: Boolean = true,
     // lock screen
     val lockScreen: Boolean = false,
-    val lockStyle: String = "cover", // cover | minimal | transcript
-    val lockBackground: String = "art", // art | accent | black
+    val lockStyle: String = "page", // page | cover | minimal
+    val lockBackground: String = "black", // black | art | accent
+    val lockAccent: String = "theme", // theme | white
+    val lockTextSize: Float = 20f,
     val lockClock: Boolean = true,
-    val lockTranscript: Boolean = true,
+    val lockClockSize: String = "small", // small | large
+    val lockTitle: Boolean = true,
+    val lockSeekBar: Boolean = true,
     val lockHighlight: Boolean = true,
+    val lockFollow: Boolean = true,
+    val lockKeepOn: Boolean = false,
+    /** Start with the control panel dragged away, so only the text shows. */
+    val lockHideControls: Boolean = false,
     val captionLang: String = "",
     // advanced: client versions can be changed here if YouTube ever rejects the built-in ones
     val androidClientVersion: String = "20.10.38",
