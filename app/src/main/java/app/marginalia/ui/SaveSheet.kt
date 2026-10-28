@@ -99,7 +99,7 @@ fun SaveSheet(
         val memo = remember(templateId) { video.lastClip?.takeIf { it.templateId == templateId } }
         var name by remember(templateId) { mutableStateOf(memo?.name?.ifBlank { null } ?: base.name) }
         var folder by remember(templateId) { mutableStateOf(memo?.folder?.takeIf { it.isNotBlank() } ?: base.folder) }
-        var vault by remember(templateId) { mutableStateOf(memo?.vault?.ifBlank { null } ?: base.vault) }
+        var vault by remember(templateId) { mutableStateOf(memo?.vault?.takeIf { it in settings.vaults } ?: base.vault) }
         val overrides = remember(templateId) { mutableStateMapOf<String, String>().apply { memo?.values?.let { putAll(it) } } }
         val tags = remember(templateId) {
             mutableStateListOf<String>().apply {
@@ -140,8 +140,8 @@ fun SaveSheet(
             app.settings.update {
                 it.copy(
                     selectedTemplateId = templateId,
-                    vault = vault.ifBlank { it.vault },
-                    vaults = if (vault.isNotBlank()) (it.vaults + vault).distinct() else it.vaults,
+                    // Only a vault you already added can become the default. A clip never adds one.
+                    vault = if (vault in it.vaults) vault else it.vault,
                     recentTags = (tags.toList() + it.recentTags).distinct().take(40),
                 )
             }

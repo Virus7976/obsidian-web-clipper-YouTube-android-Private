@@ -139,7 +139,8 @@ object NoteBuilder {
         val content = Template.render(template.noteContentFormat, vars)
         val name = Template.safeName(nameOverride ?: Template.render(template.noteNameFormat, vars)).ifBlank { video.meta.id }
         val folder = (folderOverride ?: Template.render(template.path, vars)).trim().trim('/')
-        val vault = vaultOverride ?: template.vault.ifBlank { settings.vault }
+        // The vault chosen in Settings wins. A vault name inside an imported template is only a fallback.
+        val vault = vaultOverride ?: settings.vault.ifBlank { template.vault }
         val md = buildString {
             if (props.isNotEmpty()) {
                 append("---\n")

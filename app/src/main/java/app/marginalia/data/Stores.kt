@@ -51,13 +51,22 @@ class SettingsStore(context: Context) : JsonFileStore<AppSettings>(File(context.
 
     val isFirstRun: Boolean = readOrNull() == null
 
-    private fun migrate(s: AppSettings): AppSettings =
-        if (s.tabsVersion >= 1) s
-        else s.copy(
-            tabsVersion = 1,
-            homeTabs = (s.homeTabs.filter { it == "add" || it == "library" } + listOf("add", "library", "playlists", "queue")).distinct()
-                .filter { it in setOf("add", "library", "playlists", "queue") },
-        )
+    private fun migrate(s0: AppSettings): AppSettings {
+        var s = s0
+        if (s.tabsVersion < 1) {
+            s = s.copy(
+                homeTabs = (s.homeTabs.filter { it == "add" || it == "library" } + listOf("add", "library", "playlists", "queue")).distinct()
+                    .filter { it in setOf("add", "library", "playlists", "queue") },
+            )
+        }
+        if (s.tabsVersion < 2 && s.vaultFolders.isNotEmpty()) {
+            // Older versions copied vault names from imported templates and from clips into the list.
+            // Keep the vaults that have a folder, and the one that is selected.
+            val keep = s.vaults.filter { it in s.vaultFolders || it == s.vault }
+            s = s.copy(vaults = keep, vault = if (s.vault in keep) s.vault else keep.firstOrNull().orEmpty())
+        }
+        return s.copy(tabsVersion = 2)
+    }
 
     override fun encode(value: AppSettings) = storeJson.encodeToString(AppSettings.serializer(), value)
     override fun decode(text: String) = storeJson.decodeFromString(AppSettings.serializer(), text)
