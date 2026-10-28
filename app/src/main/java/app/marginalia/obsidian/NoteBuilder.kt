@@ -94,6 +94,32 @@ object NoteBuilder {
         )
     }
 
+    /**
+     * Adds the always-on tags and properties to a template's properties.
+     * A template value that is already filled in is kept. Tags are joined, never replaced.
+     */
+    fun withAutos(base: List<TemplateProperty>, autoTags: List<String>, autoProps: List<TemplateProperty>): List<TemplateProperty> {
+        val out = base.toMutableList()
+        fun clean(t: String) = t.trim().removePrefix("#").trim('"')
+        val tagsToAdd = autoTags.map(::clean).filter { it.isNotBlank() }
+        if (tagsToAdd.isNotEmpty()) {
+            val i = out.indexOfFirst { it.name.equals("tags", ignoreCase = true) }
+            if (i < 0) {
+                out += TemplateProperty("auto:tags", "tags", tagsToAdd.joinToString(","), "multitext")
+            } else {
+                val have = splitList(out[i].value).map(::clean).filter { it.isNotBlank() }
+                out[i] = out[i].copy(value = (have + tagsToAdd).distinct().joinToString(","))
+            }
+        }
+        for (a in autoProps) {
+            if (a.name.isBlank() || a.name.equals("tags", ignoreCase = true)) continue
+            val i = out.indexOfFirst { it.name.equals(a.name, ignoreCase = true) }
+            if (i < 0) out += a.copy(id = "auto:" + a.name)
+            else if (out[i].value.isBlank()) out[i] = out[i].copy(value = a.value)
+        }
+        return out
+    }
+
     fun build(
         template: ClipTemplate,
         video: SavedVideo,
@@ -105,7 +131,7 @@ object NoteBuilder {
         vaultOverride: String? = null,
     ): BuiltNote {
         val vars = variables(video, lines, settings)
-        val props = template.properties.map { p ->
+        val props = withAutos(template.properties, settings.autoTags, settings.autoProps).map { p ->
             val raw = valueOverrides[p.id] ?: Template.render(p.value, vars)
             val type = p.type.ifBlank { settings.propertyTypes[p.name] ?: "text" }
             BuiltProperty(p, type, raw)

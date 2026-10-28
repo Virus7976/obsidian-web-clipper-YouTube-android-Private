@@ -15,6 +15,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.rounded.Check
@@ -64,6 +68,7 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -96,6 +101,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
@@ -153,6 +160,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     var showHighlights by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var headerHidden by remember { mutableStateOf(false) }
 
@@ -257,6 +265,23 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
 
     var tview by remember { mutableStateOf<TranscriptView?>(null) }
     LaunchedEffect(ps.value.error) { if (ps.value.error != null) app.updates.checkSoon() }
+    // "Show the video" is a setting. Otherwise the reader is listen-only and has no picture.
+    var videoAsked by remember(videoId) { mutableStateOf(false) }
+    LaunchedEffect(ps.value.canWatch) {
+        if (!videoAsked && ps.value.canWatch) {
+            videoAsked = true
+            if (settings.pinPlayer && !ps.value.videoOn) app.player.setVideo(true)
+        }
+    }
+    // Find in this video. Searches only this transcript, nothing else.
+    var searching by remember(videoId) { mutableStateOf(false) }
+    var query by remember(videoId) { mutableStateOf("") }
+    var matchCount by remember(videoId) { mutableIntStateOf(0) }
+    var matchAt by remember(videoId) { mutableIntStateOf(-1) }
+    LaunchedEffect(searching) {
+        tview?.searching = searching
+        if (!searching) { tview?.clearSearch(); query = ""; matchCount = 0; matchAt = -1 }
+    }
     var away by remember { mutableStateOf(false) }
     var editingId by remember(videoId) { mutableStateOf<String?>(null) }
     LaunchedEffect(settings.autoScroll) { if (!settings.autoScroll) away = false }
@@ -281,9 +306,22 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                IconButton(onClick = { searching = !searching }) {
+                    Icon(Icons.Rounded.Search, "Find in this video", tint = if (searching) scheme.primary else scheme.onSurface)
+                }
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (settings.autoScroll) "Follow along: on" else "Follow along: off") },
+                            leadingIcon = { Icon(Icons.Rounded.MyLocation, null, tint = if (settings.autoScroll) scheme.primary else scheme.onSurfaceVariant) },
+                            onClick = { app.settings.update { it.copy(autoScroll = !it.autoScroll) } },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Tags, queue, offline audio") },
+                            leadingIcon = { Icon(Icons.Rounded.Sell, null) },
+                            onClick = { menu = false; showActions = true },
+                        )
                         DropdownMenuItem(
                             text = { Text("About this video") },
                             leadingIcon = { Icon(Icons.Rounded.Description, null) },
@@ -302,29 +340,39 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                         DropdownMenuItem(
                             text = { Text("Remove from library") },
                             leadingIcon = { Icon(Icons.Rounded.Delete, null) },
-                            onClick = { menu = false; app.library.remove(videoId); onBack() },
+                            onClick = { menu = false; app.queue.remove(videoId); app.audio.remove(videoId); app.library.remove(videoId); onBack() },
                         )
                     }
                 }
             }
 
-            AnimatedVisibility(
-                visible = settings.pinPlayer || !headerHidden,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
-            ) {
-                Column {
-                    PlayerBlock(video, ps, app.player, ctx)
-                    if (video.chapters.isNotEmpty()) {
-                        ChapterChips(video.chapters, activeChapter) { c ->
-                            seek(c.start)
-                            doc?.let { d -> d.wordAtTime(c.start).takeIf { it >= 0 }?.let { tview?.scrollToWord(it) } }
-                        }
+            if (searching) {
+                FindBar(
+                    query = query,
+                    count = matchCount,
+                    at = matchAt,
+                    onQuery = {
+                        query = it
+                        matchCount = tview?.search(it) ?: 0
+                        matchAt = if (matchCount > 0) 0 else -1
+                    },
+                    onStep = { d -> tview?.goToMatch(matchAt + d)?.let { matchAt = it } },
+                    onClose = { searching = false },
+                )
+            }
+
+            // Solid background, so nothing from the transcript can show through the player.
+            Column(Modifier.fillMaxWidth().background(scheme.background)) {
+                PlayerBlock(video, ps, app.player, ctx)
+                if (video.chapters.isNotEmpty()) {
+                    ChapterChips(video.chapters, activeChapter) { c ->
+                        seek(c.start)
+                        doc?.let { d -> d.wordAtTime(c.start).takeIf { it >= 0 }?.let { tview?.scrollToWord(it) } }
                     }
                 }
             }
 
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 val d = doc
                 if (d != null) {
                     AndroidView(
@@ -339,6 +387,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             tv.onScrollDelta = { dy ->
                                 if (dy > 6) headerHidden = true else if (dy < -6) headerHidden = false
                             }
+                            tv.currentColor = settings.highlightColor
                             tv.onAway = { away = it && settings.autoScroll }
                             tv.onTapWord = { w ->
                                 val h = video.highlights.firstOrNull { it.w0 >= 0 && w >= it.w0 && w <= it.w1 }
@@ -383,7 +432,9 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         LaunchedEffect(syncing) { if (syncing) { kotlinx.coroutines.delay(520); syncing = false; away = false } }
         AnimatedVisibility(
             visible = away && settings.autoScroll && editingId == null,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 86.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + (if (headerHidden) 20.dp else 86.dp),
+            ),
             enter = androidx.compose.animation.slideInVertically(spring(0.6f, 420f)) { it } + androidx.compose.animation.scaleIn(spring(0.55f, 420f), initialScale = 0.6f) + fadeIn(),
             exit = androidx.compose.animation.scaleOut(spring(1f, 500f), targetScale = 0.7f) + fadeOut(),
         ) {
@@ -408,7 +459,9 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         val editing = video.highlights.firstOrNull { it.id == editingId }
         AnimatedVisibility(
             visible = editing != null,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 86.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).imePadding().padding(
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp,
+            ),
             enter = androidx.compose.animation.slideInVertically(spring(0.7f, 420f)) { it / 2 } + fadeIn(),
             exit = androidx.compose.animation.slideOutVertically { it / 2 } + fadeOut(),
         ) {
@@ -418,7 +471,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 HighlightNoteBar(
                     h = h,
                     onNote = { text -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(note = text) else it }) } },
-                    onColor = { c -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = c) else it }) } },
+                    onColor = { c ->
+                        app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = c) else it }) }
+                        app.settings.update { it.copy(highlightColor = c) } // the next highlight starts with this colour
+                    },
                     onDelete = {
                         editingId = null
                         app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.filterNot { it.id == h.id }) }
@@ -429,50 +485,45 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             }
         }
 
-        // Floating toolbar
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 14.dp)
-                .padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(40.dp),
-            color = scheme.surfaceContainerHighest,
-            shadowElevation = 10.dp,
-            tonalElevation = 2.dp,
+        // Bottom bar: only what you need while reading. It slides away when you scroll down
+        // and comes back when you scroll up. Follow along lives in the top menu.
+        AnimatedVisibility(
+            visible = !headerHidden && editingId == null,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = androidx.compose.animation.slideInVertically(spring(0.75f, 420f)) { it } + fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically(spring(1f, 500f)) { it } + fadeOut(),
         ) {
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { showHighlights = true }) {
-                    Icon(Icons.Rounded.BorderColor, null, Modifier.size(20.dp), tint = scheme.tertiary)
-                    Spacer(Modifier.width(6.dp))
-                    Text("${video.highlights.size}", style = MaterialTheme.typography.labelLarge)
-                }
-                if (video.chapters.isNotEmpty()) {
-                    IconButton(onClick = { showChapters = true }) { Icon(Icons.Rounded.FormatListBulleted, "Chapters") }
-                }
-                IconToggleButton(
-                    checked = settings.autoScroll,
-                    onCheckedChange = { v -> app.settings.update { it.copy(autoScroll = v) } },
-                ) {
-                    Icon(Icons.Rounded.MyLocation, "Follow along", tint = if (settings.autoScroll) scheme.primary else scheme.onSurfaceVariant)
-                }
-                IconToggleButton(
-                    checked = settings.pinPlayer,
-                    onCheckedChange = { v -> app.settings.update { it.copy(pinPlayer = v) } },
-                ) {
-                    Icon(Icons.Rounded.PushPin, "Pin player", tint = if (settings.pinPlayer) scheme.primary else scheme.onSurfaceVariant)
-                }
-                Spacer(Modifier.width(4.dp))
-                Button(onClick = { showSave = true }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Upload, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Clip")
+            Surface(
+                modifier = Modifier
+                    .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 14.dp)
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(40.dp),
+                color = scheme.surfaceContainerHighest,
+                shadowElevation = 10.dp,
+                tonalElevation = 2.dp,
+            ) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showHighlights = true }) {
+                        Icon(Icons.Rounded.BorderColor, null, Modifier.size(20.dp), tint = scheme.tertiary)
+                        Spacer(Modifier.width(6.dp))
+                        Text("${video.highlights.size}", style = MaterialTheme.typography.labelLarge)
+                    }
+                    if (video.chapters.isNotEmpty()) {
+                        IconButton(onClick = { showChapters = true }) { Icon(Icons.Rounded.FormatListBulleted, "Chapters") }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Button(onClick = { showSave = true }, shapes = ButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.Upload, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Clip")
+                    }
                 }
             }
         }
 
         SnackbarHost(
             snackbar,
-            Modifier.align(Alignment.BottomCenter).padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 90.dp),
+            Modifier.align(Alignment.BottomCenter).padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp),
         )
     }
 
@@ -527,6 +578,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             }
         }
     }
+    if (showActions) VideoActionsSheet(videoId, onDismiss = { showActions = false })
     if (showAbout) {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(onDismissRequest = { showAbout = false }, sheetState = sheet) {
@@ -558,10 +610,11 @@ private fun openInYouTube(ctx: android.content.Context, id: String) {
 
 @Composable
 private fun PlayerBlock(video: SavedVideo, ps: State<PlayerState>, host: PlayerHost, ctx: android.content.Context) {
-    Column(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16 / 9f).background(Color.Black)) {
-            val s = ps.value
-            if (s.videoOn) {
+    val s = ps.value
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+        // The picture only exists while you are watching. Listening is just the controls below.
+        if (s.videoOn) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16 / 9f).background(Color.Black).clipToBounds()) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { c ->
@@ -573,64 +626,54 @@ private fun PlayerBlock(video: SavedVideo, ps: State<PlayerState>, host: PlayerH
                     },
                     onRelease = { it.player = null },
                 )
-            } else {
-                AsyncImage(
-                    model = video.meta.thumb,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    alpha = 0.55f,
-                )
-            }
-            if (s.loading || (s.buffering && !s.playing)) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
-            }
-            if (s.error != null) {
-                Column(
-                    Modifier.fillMaxSize().background(Color(0xE6000000)).padding(20.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(s.error, color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { host.retry() }, shapes = ButtonDefaults.shapes()) { Text("Try again") }
-                        FilledTonalButton(onClick = { openInYouTube(ctx, video.meta.id) }, shapes = ButtonDefaults.shapes()) { Text("Open in YouTube") }
-                    }
+                if (s.loading || (s.buffering && !s.playing)) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
                 }
             }
-            if (s.canWatch && s.error == null) {
-                FilterChip(
-                    selected = s.videoOn,
-                    onClick = { host.setVideo(!s.videoOn) },
-                    label = { Text(if (s.videoOn) "Listen" else "Watch") },
-                    leadingIcon = { Icon(if (s.videoOn) Icons.Rounded.Headphones else Icons.Rounded.Videocam, null, Modifier.size(18.dp)) },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
-                )
+        }
+        TransportRow(ps, host, canWatch = s.canWatch && s.error == null)
+        if (!s.videoOn && (s.loading || (s.buffering && !s.playing)) && s.error == null) {
+            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        }
+        if (s.error != null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(s.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { host.retry() }, shapes = ButtonDefaults.shapes()) { Text("Try again") }
+                    FilledTonalButton(onClick = { openInYouTube(ctx, video.meta.id) }, shapes = ButtonDefaults.shapes()) { Text("Open in YouTube") }
+                }
             }
         }
-        TransportRow(ps, host)
     }
 }
 
 @Composable
-private fun TransportRow(ps: State<PlayerState>, host: PlayerHost) {
+private fun TransportRow(ps: State<PlayerState>, host: PlayerHost, canWatch: Boolean) {
     val speeds = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.75f)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { host.skip(-10.0) }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds") }
-            MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 52.dp)
+            MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 44.dp)
             IconButton(onClick = { host.skip(10.0) }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
             Spacer(Modifier.weight(1f))
             Text(
                 "${YouTube.formatTime(ps.value.positionSec)} / ${YouTube.formatTime(ps.value.durationSec)}",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TextButton(onClick = {
                 val next = speeds[(speeds.indexOf(ps.value.speed).let { if (it < 0) 0 else it } + 1) % speeds.size]
                 host.setSpeed(next)
             }) { Text("${ps.value.speed}x".replace(".0x", "x")) }
+            if (canWatch) {
+                IconButton(onClick = { host.setVideo(!ps.value.videoOn) }) {
+                    Icon(
+                        if (ps.value.videoOn) Icons.Rounded.Headphones else Icons.Rounded.Videocam,
+                        if (ps.value.videoOn) "Hide the video" else "Show the video",
+                        tint = if (ps.value.videoOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         WavySeekBar(ps.value.positionSec, ps.value.durationSec, ps.value.playing, onSeek = { host.seekTo(it) })
     }
@@ -766,5 +809,36 @@ private fun HighlightNoteBar(
                 IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Remove highlight") }
             }
         }
+    }
+}
+
+/** Search box for the transcript in front of you. Shows how many matches and steps between them. */
+@Composable
+private fun FindBar(query: String, count: Int, at: Int, onQuery: (String) -> Unit, onStep: (Int) -> Unit, onClose: () -> Unit) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            modifier = Modifier.weight(1f).focusRequester(focus),
+            singleLine = true,
+            placeholder = { Text("Find in this video") },
+            shape = RoundedCornerShape(50),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onStep(1) }),
+        )
+        Text(
+            if (query.trim().length < 2) "" else if (count == 0) "None" else "${at + 1}/$count",
+            Modifier.padding(horizontal = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(onClick = { onStep(-1) }, enabled = count > 0) { Icon(Icons.Rounded.KeyboardArrowUp, "Previous match") }
+        IconButton(onClick = { onStep(1) }, enabled = count > 0) { Icon(Icons.Rounded.KeyboardArrowDown, "Next match") }
+        IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close search") }
     }
 }

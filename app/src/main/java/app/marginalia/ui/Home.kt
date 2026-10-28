@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
@@ -79,8 +80,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.marginalia.data.OmniKind
-import app.marginalia.obsidian.Sender
+import app.marginalia.data.Playlist
+import app.marginalia.data.PlaylistImport
 import app.marginalia.data.SavedVideo
 import app.marginalia.data.VideoMeta
 import app.marginalia.data.YouTube
@@ -105,26 +106,45 @@ fun HomeScreen(
     var loading by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<VideoMeta?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var searching by remember { mutableStateOf(false) }
 
-    if (searching) {
-        val vault = settings.vault.takeIf { settings.vaultFolders.containsKey(it) } ?: settings.vaultFolders.keys.first()
-        OmniSheet(
-            vault = vault, title = "Search $vault",
-            kinds = setOf(OmniKind.Note, OmniKind.Folder, OmniKind.Tag),
-            onPick = { item ->
-                searching = false
-                when (item.kind) {
-                    OmniKind.Note -> Sender.openNote(ctx, vault, item.value)
-                    OmniKind.Tag -> Sender.openSearch(ctx, vault, "tag:#${item.value}")
-                    else -> Sender.openSearch(ctx, vault, "path:\"${item.value}\"")
-                }
-            },
-            onDismiss = { searching = false },
-        )
+    var tabRequest by remember { mutableStateOf<String?>(null) }
+    var actionsFor by remember { mutableStateOf<String?>(null) }
+    var actionsInPlaylist by remember { mutableStateOf(false) }
+    var openPlaylist by remember { mutableStateOf<String?>(null) }
+    var filter by remember { mutableStateOf(LibraryFilter()) }
+    var plPreview by remember { mutableStateOf<PlaylistImport.Result?>(null) }
+    var plListId by remember { mutableStateOf("") }
+    val playlists by app.playlists.all.collectAsState()
+    val queue by app.queue.ids.collectAsState()
+
+    fun importPlaylist(r: PlaylistImport.Result) {
+        val pid = "pl-" + plListId
+        val now = System.currentTimeMillis()
+        val ids = r.videos.map { it.id }
+        r.videos.forEach { m ->
+            if (app.library.get(m.id) == null) app.library.upsert(SavedVideo(meta = m, playlistId = pid, addedAt = now))
+        }
+        app.playlists.put(Playlist(pid, r.title, plListId, ids, now))
+        plPreview = null
+        input = ""
+        openPlaylist = pid
+        tabRequest = "playlists"
     }
 
     fun submit(text: String) {
+        if (PlaylistImport.isPlaylistLink(text)) {
+            val listId = PlaylistImport.listId(text)!!
+            loading = true
+            error = null
+            preview = null
+            scope.launch {
+                runCatching { PlaylistImport.fetch(app.youtube, listId) }
+                    .onSuccess { plListId = listId; plPreview = it }
+                    .onFailure { error = it.message ?: "Could not read that playlist." }
+                loading = false
+            }
+            return
+        }
         val id = YouTube.extractId(text)
         if (id == null) {
             error = "That does not look like a YouTube link."
@@ -145,7 +165,7 @@ fun HomeScreen(
     }
 
     fun open(meta: VideoMeta) {
-        if (app.library.get(meta.id) == null) app.library.upsert(SavedVideo(meta = meta))
+        if (app.library.get(meta.id) == null) app.library.upsert(SavedVideo(meta = meta, addedAt = System.currentTimeMillis()))
         preview = null
         input = ""
         onOpen(meta.id)
@@ -162,9 +182,11 @@ fun HomeScreen(
     val visibleTabs = settings.homeTabs.filter { it in HomeTabs.keys }.ifEmpty { listOf("add") }
     var tab by remember { mutableStateOf(visibleTabs.first()) }
     if (tab !in visibleTabs) tab = visibleTabs.first()
+    tabRequest?.let { if (it in visibleTabs) tab = it; tabRequest = null }
     val showAdd = tab == "add" || visibleTabs.size == 1
     val showLibrary = tab == "library" || visibleTabs.size == 1
-    val vaultIndexes by app.vaults.indexes.collectAsState()
+    val showPlaylists = tab == "playlists"
+    val showQueue = tab == "queue"
     var refreshing by remember { mutableStateOf(false) }
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
@@ -201,9 +223,6 @@ fun HomeScreen(
                     Spacer(Modifier.width(10.dp))
                     Text("Marginalia", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.weight(1f))
-                    if (settings.vaultFolders.isNotEmpty()) {
-                        IconButton(onClick = { searching = true }) { Icon(Icons.Rounded.Search, "Search your vault") }
-                    }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
             }
@@ -214,16 +233,6 @@ fun HomeScreen(
                         androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id)) })
                     }
                 }
-            }
-
-            if (tab == "vault" && visibleTabs.size > 1) {
-                val vaultName = settings.vault.takeIf { settings.vaultFolders.containsKey(it) } ?: settings.vaultFolders.keys.firstOrNull()
-                vaultTab(
-                    vault = vaultName,
-                    notes = vaultName?.let { vaultIndexes[it] }?.notes.orEmpty().sortedByDescending { it.mtime }.take(40),
-                    onSearch = { searching = true },
-                    onOpen = { n -> vaultName?.let { Sender.openNote(ctx, it, n.path) } },
-                )
             }
 
             if (showAdd) item("hero") {
@@ -305,7 +314,39 @@ fun HomeScreen(
                 }
             }
 
-            val resume = videos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }.take(10)
+            if (showAdd) item("pl-preview") {
+                AnimatedVisibility(visible = plPreview != null) {
+                    plPreview?.let { r ->
+                        Surface(
+                            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp).fillMaxWidth(),
+                            shape = MaterialTheme.shapes.extraLarge,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                        ) {
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(r.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("${r.videos.size} videos. They go into a playlist. Your library stays clean.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Button(onClick = { importPlaylist(r) }, shapes = ButtonDefaults.shapes()) { Text("Import playlist") }
+                                    TextButton(onClick = { plPreview = null }) { Text("Not now") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (showPlaylists) playlistsTab(
+                playlists = playlists, videos = videos, openId = openPlaylist,
+                onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen,
+                onMore = { actionsInPlaylist = true; actionsFor = it },
+            )
+            if (showQueue) queueTab(
+                queue = queue, videos = videos, nowId = player.videoId, onOpenVideo = onOpen,
+                onClear = { app.queue.clear() }, onRemove = { app.queue.remove(it) },
+            )
+
+            val libraryVideos = videos.filter { it.playlistId.isEmpty() }
+            val resume = libraryVideos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }.take(10)
             if (showLibrary && resume.isNotEmpty()) {
                 item("resume-label") { SectionLabel("Pick up where you left off") }
                 item("resume") {
@@ -318,26 +359,39 @@ fun HomeScreen(
                 }
             }
 
-            val pinned = videos.filter { it.pinned }
+            val pinned = libraryVideos.filter { it.pinned }
             if (showLibrary && pinned.isNotEmpty()) {
                 item("pinned-label") { SectionLabel("Pinned") }
-                items(pinned, key = { "p" + it.meta.id }) { v -> VideoRow(v) { onOpen(v.meta.id) } }
+                items(pinned, key = { "p" + it.meta.id }) { v -> VideoRow(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
             }
 
             if (showLibrary) {
                 item("lib-label") {
-                    SectionLabel("Library", trailing = if (videos.isEmpty()) null else "${videos.size} videos")
+                    SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} videos")
                 }
-                if (videos.isEmpty()) {
+                if (libraryVideos.isNotEmpty()) item("lib-controls") {
+                    LibraryControls(
+                        libraryVideos, settings.librarySort,
+                        onSort = { s -> app.settings.update { it.copy(librarySort = s) } },
+                        filter = filter, onFilter = { filter = it },
+                    )
+                }
+                val shown = libraryVideos.filter { filter.matches(it) }.sortedBy(settings.librarySort)
+                val more: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
+                if (libraryVideos.isEmpty()) {
                     item("empty") { EmptyShelf() }
+                } else if (shown.isEmpty()) {
+                    item("none") { Text("Nothing matches this filter.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 } else when (settings.libraryLayout) {
-                    "grid" -> items(videos.chunked(2), key = { "g" + it.first().meta.id }) { pair -> VideoGridRow(pair, onOpen) }
-                    "compact" -> items(videos, key = { "c" + it.meta.id }) { v -> VideoCompactRow(v, onOpen) }
-                    else -> items(videos, key = { "v" + it.meta.id }) { v -> VideoRow(v) { onOpen(v.meta.id) } }
+                    "grid" -> items(shown.chunked(2), key = { "g" + it.first().meta.id }) { pair -> VideoGridRow(pair, onOpen, more) }
+                    "compact" -> items(shown, key = { "c" + it.meta.id }) { v -> VideoCompactRow(v, onOpen, more) }
+                    else -> items(shown, key = { "v" + it.meta.id }) { v -> VideoRow(v, more) { onOpen(v.meta.id) } }
                 }
             }
         }
         }
+
+        actionsFor?.let { id -> VideoActionsSheet(id, inPlaylist = actionsInPlaylist, onDismiss = { actionsFor = null }) }
 
         // Now playing pill
         val nowId = player.videoId
@@ -421,8 +475,8 @@ private fun PreviewCard(
                     FilterChip(
                         selected = pinPlayer,
                         onClick = { onPin(!pinPlayer) },
-                        label = { Text("Pin player") },
-                        leadingIcon = { Icon(Icons.Rounded.PushPin, null, Modifier.size(18.dp)) },
+                        label = { Text("Show video") },
+                        leadingIcon = { Icon(Icons.Rounded.Videocam, null, Modifier.size(18.dp)) },
                     )
                     FilterChip(
                         selected = highlighting,
@@ -476,7 +530,7 @@ private fun ResumeCard(v: SavedVideo, onClick: () -> Unit) {
 }
 
 @Composable
-private fun VideoRow(v: SavedVideo, onClick: () -> Unit) {
+private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
     val app = LocalApp.current
     val source = remember { MutableInteractionSource() }
     val radius = pressedRadius(source, 22.dp, 8.dp)
@@ -514,9 +568,7 @@ private fun VideoRow(v: SavedVideo, onClick: () -> Unit) {
                 tint = if (v.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
             )
         }
-        IconButton(onClick = { app.library.remove(v.meta.id) }) {
-            Icon(Icons.Rounded.Delete, "Remove", tint = MaterialTheme.colorScheme.outline)
-        }
+        MoreButton { onMore(v.meta.id) }
     }
 }
 

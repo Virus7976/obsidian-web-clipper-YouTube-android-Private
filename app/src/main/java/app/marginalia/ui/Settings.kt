@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -98,6 +99,11 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             }.onSuccess { say("Imported your clipper settings.") }.onFailure { say("That file is not a clipper settings export.") }
         }
     }
+    var pickFor by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    // every word typed must appear in the section's keyword list
+    fun hit(words: String) = query.isBlank() ||
+        query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }.all { words.contains(it) }
     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -125,7 +131,12 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             runCatching {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             }
-            val name = android.net.Uri.decode(uri.toString()).substringAfterLast(':').substringAfterLast('/').ifBlank { "Vault" }
+            // A vault name with no folder yet (for example the one in your template) gets this folder.
+            val cur = app.settings.value
+            val name = pickFor
+                ?: cur.vaults.firstOrNull { !cur.vaultFolders.containsKey(it) }
+                ?: android.net.Uri.decode(uri.toString()).substringAfterLast(':').substringAfterLast('/').ifBlank { "Vault" }
+            pickFor = null
             set { it.copy(
                 vaults = (it.vaults + name).distinct(),
                 vault = it.vault.ifBlank { name },
@@ -151,9 +162,27 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     Text("Settings", style = MaterialTheme.typography.headlineSmall)
                 }
             }
+            item("search") {
+                OutlinedTextField(
+                    value = query, onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    singleLine = true,
+                    placeholder = { Text("Search settings") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear") } },
+                    shape = RoundedCornerShape(50),
+                )
+                if (query.isNotBlank() && !listOf(
+                        SettingsKeys.look, SettingsKeys.reading, SettingsKeys.highlights, SettingsKeys.updates,
+                        SettingsKeys.obsidian, SettingsKeys.playback, SettingsKeys.advanced,
+                    ).any { hit(it) }
+                ) {
+                    Text("Nothing matches \"$query\"", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
 
             // ---------- look ----------
-            item { Group("Look") {
+            if (hit(SettingsKeys.look)) item { Group("Look") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     androidx.compose.foundation.lazy.LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -219,7 +248,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- reading ----------
-            item { Group("Reading") {
+            if (hit(SettingsKeys.reading)) item { Group("Reading") {
                 Label("Font")
                 Choices(
                     listOf("serif" to "Serif", "sans" to "Sans", "system" to "System") + (if (s.customFontPath.isNotBlank()) listOf("custom" to s.customFontName.ifBlank { "Mine" }) else emptyList()),
@@ -241,14 +270,14 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 SliderRow("Reading width", s.maxWidth, 24f..60f, "${s.maxWidth.toInt()}") { v -> set { it.copy(maxWidth = v) } }
                 Label("Line length")
                 Choices(listOf("0" to "Short", "1" to "Medium", "2" to "Long"), s.lineLength.toString()) { v -> set { it.copy(lineLength = v.toInt()) } }
-                SwitchRow("Pin the player", "Keep the video at the top while you read.", s.pinPlayer) { v -> set { it.copy(pinPlayer = v) } }
+                SwitchRow("Show the video", "Off means listen only. You can switch it on in the reader.", s.pinPlayer) { v -> set { it.copy(pinPlayer = v) } }
                 SwitchRow("Mark the current line", "A red bar follows the spoken line.", s.highlightActiveLine) { v -> set { it.copy(highlightActiveLine = v) } }
                 SwitchRow("Follow along", "Scroll the transcript as the video plays.", s.autoScroll) { v -> set { it.copy(autoScroll = v) } }
                 SwitchRow("Show timestamps", null, s.showTimestamps) { v -> set { it.copy(showTimestamps = v) } }
             } }
 
             // ---------- highlights ----------
-            item { Group("Highlights") {
+            if (hit(SettingsKeys.highlights)) item { Group("Highlights") {
                 SwitchRow("Highlighter", "Hold a line, drag to take more.", s.highlighterEnabled) { v -> set { it.copy(highlighterEnabled = v) } }
                 SwitchRow("Always show highlights", null, s.alwaysShowHighlights) { v -> set { it.copy(alwaysShowHighlights = v) } }
                 SwitchRow(
@@ -287,10 +316,10 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 )
             } }
 
-            item { UpdateGroup(s, ::set) }
+            if (hit(SettingsKeys.updates)) item { UpdateGroup(s, ::set) }
 
             // ---------- obsidian ----------
-            item { Group("Obsidian") {
+            if (hit(SettingsKeys.obsidian)) item { Group("Obsidian") {
                 Label("When I tap Clip")
                 Choices(
                     listOf("addToObsidian" to "Open Obsidian", "saveFile" to "Save file", "copyToClipboard" to "Copy", "share" to "Share"),
@@ -300,40 +329,56 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 Label("Vaults")
                 val indexes by app.vaults.indexes.collectAsState()
                 val busy by app.vaults.busy.collectAsState()
+                val problems by app.vaults.errors.collectAsState()
                 s.vaults.forEach { v ->
-                    val idx = indexes[v]
                     val linked = s.vaultFolders.containsKey(v)
+                    // a name with no folder of its own uses the only folder there is
+                    val key = if (linked) v else s.linkedVault(v)
+                    val idx = key?.let { indexes[it] }
+                    val problem = key?.let { problems[it] }
+                    val reading = key?.let { busy[it] }
                     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            FilterChip(selected = v == s.vault, onClick = { set { it.copy(vault = v) } }, label = { Text(v) })
-                            Spacer(Modifier.width(10.dp))
+                        Column(Modifier.padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                FilterChip(selected = v == s.vault, onClick = { set { it.copy(vault = v) } }, label = { Text(v) })
+                                Spacer(Modifier.weight(1f))
+                                IconButton(onClick = {
+                                    app.vaults.forget(v)
+                                    set { st -> st.copy(
+                                        vaults = st.vaults - v,
+                                        vaultFolders = st.vaultFolders - v,
+                                        vault = if (st.vault == v) st.vaults.firstOrNull { it != v }.orEmpty() else st.vault,
+                                    ) }
+                                }) { Icon(Icons.Rounded.Close, "Remove vault") }
+                            }
                             Text(
                                 when {
-                                    busy[v] != null -> "Reading… ${busy[v]} notes"
-                                    idx != null -> "${idx.notes.size} notes · ${idx.tags.size} tags"
-                                    linked -> "Not read yet"
-                                    else -> "No folder. Search is off."
+                                    reading != null -> "Reading your notes… $reading so far"
+                                    problem != null -> problem
+                                    idx != null -> "${idx.notes.size} notes, ${idx.tags.size} tags, ${idx.folders.size} folders"
+                                    key != null -> "Not read yet. Tap Reindex."
+                                    else -> "No folder yet. Choose the folder that holds this vault."
                                 },
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (problem != null && reading == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (linked) TextButton(onClick = { app.vaults.refresh(v, force = true) }) { Text("Reindex") }
-                            IconButton(onClick = {
-                                app.vaults.forget(v)
-                                set { st -> st.copy(
-                                    vaults = st.vaults - v,
-                                    vaultFolders = st.vaultFolders - v,
-                                    vault = if (st.vault == v) st.vaults.firstOrNull { it != v }.orEmpty() else st.vault,
-                                ) }
-                            }) { Icon(Icons.Rounded.Close, "Remove vault") }
+                            if (key != null) {
+                                FilledTonalButton(onClick = { app.vaults.refresh(key, force = true) }, shapes = ButtonDefaults.shapes()) {
+                                    Text(if (reading != null) "Start again" else "Reindex")
+                                }
+                            } else {
+                                FilledTonalButton(onClick = { pickFor = v; folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
+                                    Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Choose folder")
+                                }
+                            }
                         }
                     }
                 }
                 Text(
-                    "Pick the folder that holds a vault. Marginalia reads your notes, folders and tags so you can search them and file clips. It only reads. It writes only when you save a clip.",
+                    "Pick the folder that holds a vault. Marginalia reads your notes, folders and tags so you can pick them when you save a clip. It only reads. It writes only when you save a clip.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                FilledTonalButton(onClick = { folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
+                FilledTonalButton(onClick = { pickFor = null; folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
                     Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Add a vault folder")
@@ -351,6 +396,64 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                             newVault = ""
                         }
                     }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add vault") }
+                }
+
+                Label("Added to every clip")
+                Text(
+                    "These go on every clip, whatever the template says. You can still remove one while you save.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    s.autoTags.forEach { t ->
+                        androidx.compose.material3.InputChip(
+                            selected = true, onClick = { set { it.copy(autoTags = it.autoTags - t) } },
+                            label = { Text("#$t") },
+                            trailingIcon = { Icon(Icons.Rounded.Close, "Remove $t", Modifier.size(16.dp)) },
+                        )
+                    }
+                }
+                var newTag by remember { mutableStateOf("") }
+                fun addTag() {
+                    val t = newTag.trim().removePrefix("#").replace(' ', '-')
+                    if (t.isNotEmpty()) set { it.copy(autoTags = (it.autoTags + t).distinct()) }
+                    newTag = ""
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = newTag, onValueChange = { newTag = it }, singleLine = true,
+                        label = { Text("Add a tag") }, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { addTag() }),
+                    )
+                    FilledTonalButton(onClick = ::addTag, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add tag") }
+                }
+                s.autoProps.forEach { p ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name, style = MaterialTheme.typography.titleSmall)
+                            Text(p.value.ifBlank { "(empty)" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { set { it.copy(autoProps = it.autoProps - p) } }) { Icon(Icons.Rounded.Delete, "Remove ${p.name}") }
+                    }
+                }
+                var propName by remember { mutableStateOf("") }
+                var propValue by remember { mutableStateOf("") }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = propName, onValueChange = { propName = it }, singleLine = true,
+                        label = { Text("Property") }, modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = propValue, onValueChange = { propValue = it }, singleLine = true,
+                        label = { Text("Value") }, modifier = Modifier.weight(1f),
+                    )
+                    FilledTonalButton(onClick = {
+                        val n = propName.trim()
+                        if (n.isNotEmpty() && !n.equals("tags", true)) {
+                            set { it.copy(autoProps = it.autoProps.filterNot { x -> x.name.equals(n, true) } + TemplateProperty("auto:$n", n, propValue.trim())) }
+                            propName = ""; propValue = ""
+                        }
+                    }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add property") }
                 }
 
                 Label("Templates")
@@ -374,7 +477,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(onClick = {
                         val id = UUID.randomUUID().toString().take(12)
                         set { it.copy(templates = it.templates + ClipTemplate(id = id, name = "New template", properties = listOf(
@@ -401,7 +504,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- playback ----------
-            item { Group("Playback and captions") {
+            if (hit(SettingsKeys.playback)) item { Group("Playback and captions") {
                 SwitchRow("Start playing when I open a video", null, s.autoPlay) { v -> set { it.copy(autoPlay = v) } }
                 SwitchRow("Keep playing in the background","Audio continues with the screen off, with a notification.", s.backgroundPlay) { v -> set { it.copy(backgroundPlay = v) } }
                 SwitchRow("Keep the screen on", "Only while a video is playing.", s.keepScreenOn) { v -> set { it.copy(keepScreenOn = v) } }
@@ -416,7 +519,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- advanced ----------
-            item { Group("Advanced") {
+            if (hit(SettingsKeys.advanced)) item { Group("Advanced") {
                 Text(
                     "Marginalia reads captions the way YouTube's own phone apps do. If captions ever stop loading, a newer client version below usually fixes it.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -433,6 +536,17 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp))
     }
+}
+
+/** Every setting name in each section, so the search box can find a section by what is inside it. */
+private object SettingsKeys {
+    const val look = "look theme palette palettes make colour color appearance auto light dusk dark oled accent home tabs add library layout list grid compact pull refresh pixel ghost heart star invader motion calm lively playful corner roundness"
+    const val reading = "reading font serif sans system custom own text size line height width length short medium long pin player mark current line follow along scroll timestamps"
+    const val highlights = "highlights highlight highlighter always show replace content holding word selects sentence paragraph in the note obsidian plain text syntax layout each quote callout bullet inline"
+    const val updates = "updates update version install installer android shizuku wireless adb pair pairing code port check on its own sources github repo token mirror skip release"
+    const val obsidian = "obsidian when i tap clip open save file copy share vaults vault folder reindex index tags notes search always every automatic auto properties property templates template new import export presets clipper settings reset"
+    const val playback = "playback captions start playing open a video background audio screen off notification keep screen on"
+    const val advanced = "advanced client version android ios vr youtube innertube"
 }
 
 // ---------- palette maker ----------

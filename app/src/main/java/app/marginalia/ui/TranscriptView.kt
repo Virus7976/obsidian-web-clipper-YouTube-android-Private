@@ -67,6 +67,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
     private var lastTouch = 0L
     private var colors: IntArray = IntArray(0)
 
+    /** The colour the Highlight button uses. Changed in the note bar after a highlight. */
+    var currentColor: Int = 0
+
     /** Scroll movement in pixels, positive when the text moves up. */
     var onScrollDelta: (Int) -> Unit = {}
 
@@ -122,6 +125,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
             tv.highlightColor = (s.accent and 0x00FFFFFF) or 0x55000000
             tv.setLinkTextColor(s.accent)
             highlightSpans.clear()
+            searchSpans.clear()
+            matches = emptyList()
+            current = -1
             activeSpan = null
             applySidePadding(width)
             post { scrollTo(0, keepY) }
@@ -168,6 +174,71 @@ class TranscriptView(context: Context) : ScrollView(context) {
         setPaused(false)
         val y = yOfWord(word) ?: return
         glideTo((y - height * 0.3f).toInt().coerceAtLeast(0))
+    }
+
+    // ---------- find in this video ----------
+
+    private val searchSpans = ArrayList<Any>()
+    private var matches: List<IntRange> = emptyList()
+    private var current = -1
+
+    /** While true, follow-along does not scroll, so it does not fight the search. */
+    var searching = false
+
+    /** Marks every match of [query] in this transcript. Returns how many there are and jumps to the first. */
+    fun search(query: String): Int {
+        clearSearch()
+        val sp = tv.text as? Spannable ?: return 0
+        val q = query.trim()
+        if (q.length < 2) return 0
+        val text = sp.toString()
+        val found = ArrayList<IntRange>()
+        var i = text.indexOf(q, 0, ignoreCase = true)
+        while (i >= 0 && found.size < 500) {
+            found += i until i + q.length
+            i = text.indexOf(q, i + q.length, ignoreCase = true)
+        }
+        matches = found
+        found.forEach { r ->
+            val span = android.text.style.BackgroundColorSpan(0x66FFD54F)
+            sp.setSpan(span, r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            searchSpans += span
+        }
+        if (found.isNotEmpty()) goToMatch(0)
+        return found.size
+    }
+
+    /** Jumps to match [i], wrapping around. Returns the match number now shown, or -1 when there are none. */
+    fun goToMatch(i: Int): Int {
+        val sp = tv.text as? Spannable ?: return -1
+        if (matches.isEmpty()) return -1
+        val idx = ((i % matches.size) + matches.size) % matches.size
+        if (current in searchSpans.indices) {
+            val r = matches[current]
+            sp.removeSpan(searchSpans[current])
+            val soft = android.text.style.BackgroundColorSpan(0x66FFD54F)
+            sp.setSpan(soft, r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            searchSpans[current] = soft
+        }
+        val r = matches[idx]
+        sp.removeSpan(searchSpans[idx])
+        val strong = android.text.style.BackgroundColorSpan(0xCCFF9800.toInt())
+        sp.setSpan(strong, r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        searchSpans[idx] = strong
+        current = idx
+        tv.layout?.let { l ->
+            val y = l.getLineTop(l.getLineForOffset(r.first)) + tv.paddingTop
+            glideTo((y - height * 0.3f).toInt().coerceAtLeast(0))
+        }
+        return idx
+    }
+
+    fun clearSearch() {
+        val sp = tv.text as? Spannable
+        searchSpans.forEach { sp?.removeSpan(it) }
+        searchSpans.clear()
+        matches = emptyList()
+        current = -1
     }
 
     private fun glideTo(target: Int) {
@@ -246,6 +317,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
     fun follow(word: Int) {
         val d = doc ?: return
         if (word !in d.words.indices) return
+        if (searching) return
         if (paused) {
             // the reader may have scrolled back to the spoken word on their own
             if (SystemClock.uptimeMillis() - lastTouch > 1500 && isVisible(word)) setPaused(false)
@@ -295,15 +367,14 @@ class TranscriptView(context: Context) : ScrollView(context) {
             if (style?.highlighterOn == false) return false
             expand(style?.holdSelects ?: "word")
             menu.clear()
-            HighlightColors.forEachIndexed { i, c ->
-                menu.add(Menu.NONE, ID_COLOR + i, i, c.name)
-                    .setIcon(dot(c.ui))
-                    .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-            }
-            menu.add(Menu.NONE, ID_ERASE, 10, "Remove")
-            menu.add(Menu.NONE, ID_COPY, 11, "Copy")
-            menu.add(Menu.NONE, ID_SENTENCE, 12, "Sentence")
-            menu.add(Menu.NONE, ID_PARAGRAPH, 13, "Paragraph")
+            // One button to highlight. The colour is picked afterwards, in the note bar.
+            menu.add(Menu.NONE, ID_COLOR + currentColor, 0, "Highlight")
+                .setIcon(dot(HighlightColors.getOrNull(currentColor)?.ui ?: HighlightColors.first().ui))
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS or MenuItem.SHOW_AS_ACTION_WITH_TEXT)
+            menu.add(Menu.NONE, ID_SENTENCE, 1, "Sentence").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+            menu.add(Menu.NONE, ID_PARAGRAPH, 2, "Paragraph").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+            menu.add(Menu.NONE, ID_COPY, 3, "Copy")
+            menu.add(Menu.NONE, ID_ERASE, 4, "Remove highlight")
             return true
         }
 

@@ -122,7 +122,7 @@ fun OmniSheet(
                 placeholder = {
                     Text(
                         when {
-                            kinds == setOf(OmniKind.Tag) -> "Search your tags"
+                            (kinds - OmniKind.Create) == setOf(OmniKind.Tag) -> "Search your tags"
                             kinds.contains(OmniKind.Note) -> "Search notes, folders, #tags"
                             else -> "Search folders"
                         },

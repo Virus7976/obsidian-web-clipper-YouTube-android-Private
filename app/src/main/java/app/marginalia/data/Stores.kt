@@ -45,11 +45,19 @@ abstract class JsonFileStore<T>(private val file: File) {
 }
 
 class SettingsStore(context: Context) : JsonFileStore<AppSettings>(File(context.filesDir, "settings.json")) {
-    private val _state = MutableStateFlow(readOrNull() ?: AppSettings())
+    private val _state = MutableStateFlow(migrate(readOrNull() ?: AppSettings()))
     val state: StateFlow<AppSettings> = _state.asStateFlow()
     val value: AppSettings get() = _state.value
 
     val isFirstRun: Boolean = readOrNull() == null
+
+    private fun migrate(s: AppSettings): AppSettings =
+        if (s.tabsVersion >= 1) s
+        else s.copy(
+            tabsVersion = 1,
+            homeTabs = (s.homeTabs.filter { it == "add" || it == "library" } + listOf("add", "library", "playlists", "queue")).distinct()
+                .filter { it in setOf("add", "library", "playlists", "queue") },
+        )
 
     override fun encode(value: AppSettings) = storeJson.encodeToString(AppSettings.serializer(), value)
     override fun decode(text: String) = storeJson.decodeFromString(AppSettings.serializer(), text)
@@ -101,4 +109,58 @@ class Library(private val context: Context) :
     fun loadTranscript(id: String): TranscriptData? = runCatching {
         storeJson.decodeFromString(TranscriptData.serializer(), File(transcriptDir(), "$id.json").readText())
     }.getOrNull()
+}
+
+/** Imported playlists. The videos live in [Library], marked with the playlist id. */
+class Playlists(context: Context) : JsonFileStore<List<Playlist>>(File(context.filesDir, "playlists.json")) {
+    private val _state = MutableStateFlow(readOrNull().orEmpty())
+    val all: StateFlow<List<Playlist>> = _state.asStateFlow()
+
+    override fun encode(value: List<Playlist>) = storeJson.encodeToString(ListSerializer(Playlist.serializer()), value)
+    override fun decode(text: String) = storeJson.decodeFromString(ListSerializer(Playlist.serializer()), text)
+
+    fun get(id: String): Playlist? = _state.value.firstOrNull { it.id == id }
+
+    fun put(p: Playlist) {
+        _state.update { list -> listOf(p) + list.filterNot { it.id == p.id } }
+        persist(_state.value)
+    }
+
+    fun remove(id: String) {
+        _state.update { list -> list.filterNot { it.id == id } }
+        persist(_state.value)
+    }
+
+    fun addVideo(playlistId: String, videoId: String) {
+        _state.update { list -> list.map { if (it.id == playlistId && videoId !in it.videoIds) it.copy(videoIds = it.videoIds + videoId) else it } }
+        persist(_state.value)
+    }
+
+    fun removeVideo(playlistId: String, videoId: String) {
+        _state.update { list -> list.map { if (it.id == playlistId) it.copy(videoIds = it.videoIds - videoId) else it } }
+        persist(_state.value)
+    }
+}
+
+/** The play queue. It is kept in the settings file so it survives a restart. */
+class PlayQueue(private val settings: SettingsStore) {
+    val ids: StateFlow<List<String>> get() = queueFlow
+    private val queueFlow = MutableStateFlow(settings.value.queue)
+
+    private fun set(next: List<String>) {
+        queueFlow.value = next
+        settings.update { it.copy(queue = next) }
+    }
+
+    fun add(vararg id: String) = set(queueFlow.value + id.filter { it !in queueFlow.value })
+    fun playNext(id: String) = set(listOf(id) + queueFlow.value.filter { it != id })
+    fun remove(id: String) = set(queueFlow.value - id)
+    fun clear() = set(emptyList())
+
+    /** Takes the first id off the queue. */
+    fun pop(): String? {
+        val first = queueFlow.value.firstOrNull() ?: return null
+        set(queueFlow.value.drop(1))
+        return first
+    }
 }

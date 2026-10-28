@@ -106,8 +106,9 @@ fun SaveSheet(
         var asking by remember { mutableStateOf<String?>(null) }
 
         // Read the vault in the background so the existing-note check and the pickers are fresh.
-        androidx.compose.runtime.LaunchedEffect(vault) { if (vault.isNotBlank()) app.vaults.refresh(vault) }
-        val index = indexes[vault]
+        val key = settings.linkedVault(vault)
+        androidx.compose.runtime.LaunchedEffect(key) { key?.let { app.vaults.refresh(it) } }
+        val index = key?.let { indexes[it] }
         val existing: NoteRef? = remember(index, video.meta.url) { index?.noteForSource(video.meta.url) }
 
         val tagsProp = base.properties.firstOrNull { it.isTags() }
@@ -118,7 +119,7 @@ fun SaveSheet(
         )
         val mine = note.properties.filter { !it.isTags() && it.property.value.isBlank() }
         val details = note.properties.filter { !it.isTags() && it.property.value.isNotBlank() }
-        val folderUri = settings.vaultFolders[vault] ?: settings.vaultFolderUri
+        val folderUri = key?.let { settings.vaultFolders[it] } ?: settings.vaultFolderUri
 
         fun remember() {
             app.settings.update {
@@ -236,15 +237,15 @@ fun SaveSheet(
                 )
             }
             OutlinedButton(
-                onClick = { if (settings.vaultFolders.containsKey(vault)) pickFolder = true },
-                enabled = settings.vaultFolders.containsKey(vault),
+                onClick = { if ((key != null)) pickFolder = true },
+                enabled = (key != null),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(folder.ifBlank { "Vault root" }, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
-            if (!settings.vaultFolders.containsKey(vault)) {
+            if (!(key != null)) {
                 OutlinedTextField(
                     value = folder, onValueChange = { folder = it }, label = { Text("Folder") },
                     supportingText = { Text("Add this vault's folder in Settings to search your folders.") },
@@ -319,7 +320,7 @@ fun SaveSheet(
 
         if (pickFolder) {
             OmniSheet(
-                vault = vault, title = "Choose a folder",
+                vault = key ?: vault, title = "Choose a folder",
                 kinds = setOf(OmniKind.Folder, OmniKind.Create),
                 onPick = { item ->
                     folder = if (item.kind == OmniKind.Create) item.value.trim('/') else item.value
@@ -330,7 +331,7 @@ fun SaveSheet(
         }
         if (pickTags) {
             OmniSheet(
-                vault = vault, title = "Add tags",
+                vault = key ?: vault, title = "Add tags",
                 kinds = setOf(OmniKind.Tag, OmniKind.Create),
                 multi = true, selected = tags.toSet(),
                 onPick = { item ->
@@ -342,7 +343,7 @@ fun SaveSheet(
         }
         if (pickNote != null) {
             OmniSheet(
-                vault = vault, title = "Update which note?",
+                vault = key ?: vault, title = "Update which note?",
                 kinds = setOf(OmniKind.Note),
                 onPick = { item ->
                     val ref = index?.notes?.firstOrNull { it.path == item.value }

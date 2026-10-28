@@ -18,6 +18,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import app.marginalia.data.AppSettings
+import app.marginalia.data.AudioCache
 import app.marginalia.data.StreamFinder
 import app.marginalia.data.Streams
 import app.marginalia.data.userAgentFor
@@ -79,10 +80,18 @@ class PlayerHost(
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also { it.addListener(listener) }
     }
+
+    /** Audio saved on the phone. Played first when it exists. */
+    var cache: AudioCache? = null
+
+    /** Called when a video plays to its end. The queue hooks in here. */
+    var onEnded: (() -> Unit)? = null
 
     private var controllerFuture: Any? = null
     private var queue: ReceiveChannel<Streams>? = null
@@ -92,6 +101,7 @@ class PlayerHost(
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) main.post { onEnded?.invoke() }
             _state.update {
                 it.copy(
                     buffering = playbackState == Player.STATE_BUFFERING,
@@ -131,13 +141,13 @@ class PlayerHost(
 
     // ---------- loading ----------
 
-    fun load(id: String, title: String, author: String, startSec: Double) {
+    fun load(id: String, title: String, author: String, startSec: Double, force: Boolean = false) {
         val cur = _state.value
-        if (cur.videoId == id && cur.error == null && (cur.loading || exo.mediaItemCount > 0)) {
+        if (!force && cur.videoId == id && cur.error == null && (cur.loading || exo.mediaItemCount > 0)) {
             _state.update { it.copy(title = title, author = author) }
             return
         }
-        begin(id, title, author, startSec, settings().autoPlay)
+        begin(id, title, author, startSec, force || settings().autoPlay)
     }
 
     fun retry() {
@@ -158,6 +168,13 @@ class PlayerHost(
         main.post(poll)
 
         // The flow is lazy. The next source is only looked up if the current one fails.
+        val local = cache?.localStreams(id)
+        if (local != null) {
+            // Saved audio needs no lookup. The online sources are only asked if the file fails.
+            queue = null
+            job = scope.launch { start(local, startSec, autoplay) }
+            return
+        }
         val q = finder.candidates(id).produceIn(scope)
         queue = q
         job = scope.launch {
@@ -168,7 +185,8 @@ class PlayerHost(
     }
 
     private fun next(resumeSec: Double, why: String) {
-        val q = queue ?: return
+        val id = _state.value.videoId ?: return
+        val q = queue ?: finder.candidates(id).produceIn(scope).also { queue = it }
         failures++
         _state.update { it.copy(loading = true, buffering = false) }
         job = scope.launch {
@@ -198,7 +216,7 @@ class PlayerHost(
         exo.setMediaItem(item, (startSec * 1000).toLong())
         exo.prepare()
         exo.playWhenReady = autoplay
-        _state.update { it.copy(loading = false, error = null, canWatch = s.videoUrl != null, via = s.via, videoOn = useVideo) }
+        _state.update { it.copy(loading = false, error = null, canWatch = s.videoUrl != null || s.via == "saved", via = s.via, videoOn = useVideo) }
     }
 
     private fun fail(message: String) {
@@ -208,7 +226,13 @@ class PlayerHost(
     /** Switch between listening and watching without losing the spot. */
     fun setVideo(on: Boolean) {
         val s = current ?: return
-        if (on && s.videoUrl == null) return
+        if (on && s.videoUrl == null) {
+            if (s.via != "saved") return
+            // The saved file has sound only. Ask the online sources for the picture.
+            _state.update { it.copy(videoOn = true) }
+            next(exo.currentPosition / 1000.0, "video")
+            return
+        }
         _state.update { it.copy(videoOn = on) }
         start(s, exo.currentPosition / 1000.0, exo.playWhenReady)
     }

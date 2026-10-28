@@ -74,6 +74,20 @@ data class SavedVideo(
     val pinned: Boolean = false,
     val updatedAt: Long = 0L,
     val clippedAt: Long = 0L,
+    val tags: List<String> = emptyList(),
+    val category: String = "",
+    /** Empty = in the main library. Otherwise the video lives in that playlist only. */
+    val playlistId: String = "",
+    val addedAt: Long = 0L,
+)
+
+@Serializable
+data class Playlist(
+    val id: String,
+    val title: String,
+    val listId: String = "",
+    val videoIds: List<String> = emptyList(),
+    val importedAt: Long = 0L,
 )
 
 @Serializable
@@ -105,9 +119,13 @@ data class AppSettings(
     // look
     val themePreset: String = "ink",
     val customPalettes: List<CustomPalette> = emptyList(),
-    /** Home tabs that are shown: add, library, vault. */
-    val homeTabs: List<String> = listOf("add", "library", "vault"),
+    /** Home tabs that are shown: add, library. */    val homeTabs: List<String> = listOf("add", "library", "playlists", "queue"),
     val libraryLayout: String = "list", // list | grid | compact
+    val librarySort: String = "recent", // recent | added | title | author | highlights
+    /** Bumped when new home tabs ship, so the tabs show up for people who changed the list. */
+    val tabsVersion: Int = 0,
+    /** Video ids waiting to play, in order. */
+    val queue: List<String> = emptyList(),
     val pixelChar: String = "ghost", // ghost | heart | star | invader | off
     val customFontPath: String = "",
     val customFontName: String = "",
@@ -143,6 +161,10 @@ data class AppSettings(
     /** Vault name -> folder the user picked, so the app can read tags, folders and notes. */
     val vaultFolders: Map<String, String> = emptyMap(),
     val recentTags: List<String> = emptyList(),
+    /** Added to every clip, whatever the template says. */
+    val autoTags: List<String> = emptyList(),
+    /** Properties added to every clip. A template value that is already filled in wins. */
+    val autoProps: List<TemplateProperty> = emptyList(),
     val templates: List<ClipTemplate> = emptyList(),
     val selectedTemplateId: String = "",
     val propertyTypes: Map<String, String> = emptyMap(),
@@ -162,4 +184,11 @@ data class AppSettings(
     val ignoredVersion: String = "",
     val installMethod: String = "system", // system | shizuku | adb
     val lastUpdateCheck: Long = 0L,
-)
+) {
+    /**
+     * The vault name that has a folder behind it. A template may say "Liam's Git Vault" while the folder
+     * was added as "LiamsGitSyncObsidian". With only one folder linked, that one is used.
+     */
+    fun linkedVault(name: String): String? =
+        name.takeIf { vaultFolders.containsKey(it) } ?: vaultFolders.keys.singleOrNull()
+}

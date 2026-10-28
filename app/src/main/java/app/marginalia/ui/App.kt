@@ -39,6 +39,12 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
         CompositionLocalProvider(LocalApp provides app) {
             val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
             BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
+            // When the queue starts the next video, the open reader follows it.
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                app.advanced.collect { id ->
+                    if (stack.last() is Screen.Reader) stack[stack.lastIndex] = Screen.Reader(id)
+                }
+            }
             val spring = LocalSpring.current
 
             // Self-healing: when a new release is found (for example a playback fix), say so right away.

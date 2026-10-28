@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -48,7 +49,7 @@ import androidx.compose.material3.MaterialTheme as M3
 import androidx.compose.ui.text.style.TextOverflow
 
 /** The tabs on the home screen. The order here is the order shown. */
-val HomeTabs = linkedMapOf("add" to "Add", "library" to "Library", "vault" to "Vault")
+val HomeTabs = linkedMapOf("add" to "Add", "library" to "Library", "playlists" to "Playlists", "queue" to "Queue")
 
 val LibraryLayouts = listOf("list" to "List", "grid" to "Grid", "compact" to "Compact")
 
@@ -102,12 +103,13 @@ fun BoxScope.PixelIndicator(state: PullToRefreshState, refreshing: Boolean, char
 }
 
 /** Two cards per row. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun VideoGridRow(pair: List<SavedVideo>, onOpen: (String) -> Unit) {
+fun VideoGridRow(pair: List<SavedVideo>, onOpen: (String) -> Unit, onMore: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         pair.forEach { v ->
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable { onOpen(v.meta.id) },
+                Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).combinedClickable(onLongClick = { onMore(v.meta.id) }) { onOpen(v.meta.id) },
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 AsyncImage(
@@ -123,10 +125,11 @@ fun VideoGridRow(pair: List<SavedVideo>, onOpen: (String) -> Unit) {
 }
 
 /** One line per video, for long libraries. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun VideoCompactRow(v: SavedVideo, onOpen: (String) -> Unit) {
+fun VideoCompactRow(v: SavedVideo, onOpen: (String) -> Unit, onMore: (String) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onOpen(v.meta.id) }.padding(horizontal = 20.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().combinedClickable(onLongClick = { onMore(v.meta.id) }) { onOpen(v.meta.id) }.padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -136,33 +139,6 @@ fun VideoCompactRow(v: SavedVideo, onOpen: (String) -> Unit) {
         if (v.highlights.isNotEmpty()) {
             Spacer(Modifier.width(8.dp))
             Text("${v.highlights.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
-        }
-    }
-}
-
-/** The Vault tab: a search button and the notes you changed last. */
-fun LazyListScope.vaultTab(vault: String?, notes: List<NoteRef>, onSearch: () -> Unit, onOpen: (NoteRef) -> Unit) {
-    if (vault == null) {
-        item("vault-none") {
-            Text(
-                "Add a vault folder in Settings, under Obsidian. Then you can search your notes here.",
-                Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        return
-    }
-    item("vault-search") {
-        Button(onClick = onSearch, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shapes = ButtonDefaults.shapes()) {
-            Icon(Icons.Rounded.Search, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Search $vault")
-        }
-    }
-    item("vault-label") { Text("Changed lately", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleSmall) }
-    items(notes, key = { "n" + it.path }) { n ->
-        Column(Modifier.fillMaxWidth().clickable { onOpen(n) }.padding(horizontal = 20.dp, vertical = 9.dp)) {
-            Text(n.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-            Text(n.folder.ifEmpty { "Vault root" }, maxLines = 1, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

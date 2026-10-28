@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -136,47 +137,72 @@ object VaultScanner {
     private const val READ_BYTES = 40_000
     private const val TEXT_CHARS = 1_600
 
-    fun scan(context: Context, vault: String, tree: Uri, previous: VaultIndex?, onProgress: (Int) -> Unit = {}): VaultIndex {
+    private class Entry(val path: String, val uri: Uri, val mtime: Long)
+
+    /**
+     * Reads the vault. Phase one lists every folder (quick). Phase two reads the new or changed notes,
+     * eight at a time. Throws when the folder cannot be read at all, so the caller can say so.
+     */
+    suspend fun scan(context: Context, vault: String, tree: Uri, previous: VaultIndex?, onProgress: (Int) -> Unit = {}): VaultIndex {
         val resolver = context.contentResolver
         val oldByPath = previous?.notes?.associateBy { it.path }.orEmpty()
-        val notes = ArrayList<NoteRef>()
+        val entries = ArrayList<Entry>()
         val folders = ArrayList<String>()
         val queue = ArrayDeque<Pair<String, String>>() // document id, relative path
-        queue += DocumentsContract.getTreeDocumentId(tree) to ""
+        val rootId = DocumentsContract.getTreeDocumentId(tree)
+        queue += rootId to ""
+        val cols = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
         while (queue.isNotEmpty()) {
             val (docId, rel) = queue.removeFirst()
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
-            val cols = arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-            )
-            runCatching {
+            val listing = {
                 resolver.query(children, cols, null, null, null)?.use { c ->
                     while (c.moveToNext()) {
                         val id = c.getString(0)
                         val name = c.getString(1) ?: continue
                         if (name.startsWith(".")) continue
                         val mime = c.getString(2)
-                        val mtime = c.getLong(3)
+                        val mtime = if (c.isNull(3)) 0L else c.getLong(3)
                         val path = if (rel.isEmpty()) name else "$rel/$name"
                         if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                             folders += path
                             queue += id to path
                         } else if (name.endsWith(".md", ignoreCase = true)) {
-                            val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
-                            val old = oldByPath[path]
-                            if (old != null && old.mtime == mtime && old.uri == uri.toString()) {
-                                notes += old
-                            } else {
-                                notes += readNote(context, uri, path, mtime)
-                            }
-                            if (notes.size % 25 == 0) onProgress(notes.size)
+                            entries += Entry(path, DocumentsContract.buildDocumentUriUsingTree(tree, id), mtime)
                         }
                     }
-                }
+                } ?: error("Android gave no answer for the folder.")
             }
+            if (rel.isEmpty()) {
+                // the top folder must work, or the permission is gone
+                runCatching { listing() }.getOrElse { throw IllegalStateException("Cannot read the folder. Add it again. (${it.message})") }
+            } else {
+                runCatching { listing() }
+            }
+        }
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        val gate = kotlinx.coroutines.sync.Semaphore(8)
+        val notes = kotlinx.coroutines.coroutineScope {
+            entries.map { e ->
+                async(Dispatchers.IO) {
+                    gate.acquire()
+                    try {
+                        val old = oldByPath[e.path]
+                        val ref = if (old != null && old.mtime == e.mtime && old.uri == e.uri.toString()) old
+                        else readNote(context, e.uri, e.path, e.mtime)
+                        val n = done.incrementAndGet()
+                        if (n % 20 == 0) onProgress(n)
+                        ref
+                    } finally {
+                        gate.release()
+                    }
+                }
+            }.map { it.await() }
         }
         onProgress(notes.size)
         return VaultIndex(vault, System.currentTimeMillis(), notes, folders.sorted())
@@ -222,22 +248,38 @@ class VaultStore(private val context: Context, private val settings: SettingsSto
 
     fun index(vault: String): VaultIndex? = _indexes.value[vault]
 
-    /** Rebuilds the index. Unchanged notes are reused, so a second scan is quick. */
+    private val _errors = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** Vault name to what went wrong the last time it was read. */
+    val errors: StateFlow<Map<String, String>> = _errors.asStateFlow()
+    private val jobs = HashMap<String, kotlinx.coroutines.Job>()
+
+    /**
+     * Rebuilds the index. Unchanged notes are reused, so a second scan is quick.
+     * A forced refresh (the Reindex button) stops a scan that is already running and starts over.
+     */
     fun refresh(vault: String, force: Boolean = false) {
         val uri = settings.value.vaultFolders[vault] ?: return
-        if (_busy.value.containsKey(vault)) return
+        if (_busy.value.containsKey(vault)) {
+            if (!force) return
+            jobs.remove(vault)?.cancel()
+        }
         val prev = _indexes.value[vault]
         if (!force && prev != null && System.currentTimeMillis() - prev.scannedAt < 60_000) return
         _busy.update { it + (vault to 0) }
-        scope.launch {
-            val idx = runCatching {
-                VaultScanner.scan(context, vault, Uri.parse(uri), prev) { n -> _busy.update { it + (vault to n) } }
-            }.getOrNull()
-            if (idx != null) {
+        _errors.update { it - vault }
+        jobs[vault] = scope.launch {
+            try {
+                val idx = VaultScanner.scan(context, vault, Uri.parse(uri), prev) { n -> _busy.update { it + (vault to n) } }
                 _indexes.update { it + (vault to idx) }
                 runCatching { file(vault).writeText(json.encodeToString(VaultIndex.serializer(), idx)) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _errors.update { it + (vault to (e.message ?: "Could not read the vault.")) }
+            } finally {
+                _busy.update { it - vault }
             }
-            _busy.update { it - vault }
         }
     }
 
