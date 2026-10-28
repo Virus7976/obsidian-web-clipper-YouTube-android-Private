@@ -11,6 +11,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import app.marginalia.LockScreenActivity
 import app.marginalia.MarginaliaApp
 import app.marginalia.R
 import com.google.common.collect.ImmutableList
@@ -21,23 +22,47 @@ import com.google.common.util.concurrent.ListenableFuture
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
 
+    /** When the screen goes off while audio plays, show the lock screen player (if it is turned on). */
+    private val screenOff = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) {
+            val app = application as MarginaliaApp
+            if (app.settings.value.lockScreen && app.player.state.value.playing) {
+                LockScreenActivity.launch(this@PlaybackService)
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        androidx.core.content.ContextCompat.registerReceiver(
+            this, screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         val app = application as MarginaliaApp
         val highlight = SessionCommand(ACTION_HIGHLIGHT, Bundle.EMPTY)
 
-        // Android draws the seek buttons from the player's commands. We offer back 10 and forward 10
-        // in place of "previous" and "next", so there is no jump to the start. Highlight is ours.
+        // Back 10 and forward 10 take the back and forward slots, where "previous" and "next" would be.
+        // Highlight goes in the extra slot. Play, pause and the seek bar are drawn by Android itself.
         val buttons = ImmutableList.of(
+            CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
+                .setDisplayName("Back 10 seconds")
+                .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+                .setSlots(CommandButton.SLOT_BACK)
+                .build(),
+            CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
+                .setDisplayName("Forward 10 seconds")
+                .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+                .setSlots(CommandButton.SLOT_FORWARD)
+                .build(),
             CommandButton.Builder(CommandButton.ICON_UNDEFINED)
                 .setCustomIconResId(R.drawable.ic_highlight)
                 .setDisplayName("Highlight")
                 .setSessionCommand(highlight)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
         )
 
         session = MediaSession.Builder(this, SkipPlayer(app.player.exo))
-            .setCustomLayout(buttons)
+            .setMediaButtonPreferences(buttons)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                     val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(highlight).build()
@@ -74,6 +99,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(screenOff) }
         session?.release()
         session = null
         super.onDestroy()

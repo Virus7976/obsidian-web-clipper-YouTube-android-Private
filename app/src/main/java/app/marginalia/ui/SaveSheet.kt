@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.data.Line
 import app.marginalia.data.NoteRef
+import app.marginalia.data.ClipMemo
 import app.marginalia.data.OmniKind
 import app.marginalia.data.SavedVideo
 import app.marginalia.obsidian.NoteBuilder
@@ -85,17 +86,25 @@ fun SaveSheet(
             }
             return@ModalBottomSheet
         }
-        var templateId by remember { mutableStateOf(settings.selectedTemplateId.takeIf { id -> templates.any { it.id == id } } ?: templates.first().id) }
+        var templateId by remember {
+            mutableStateOf(
+                video.lastClip?.templateId?.takeIf { id -> templates.any { it.id == id } }
+                    ?: settings.selectedTemplateId.takeIf { id -> templates.any { it.id == id } } ?: templates.first().id,
+            )
+        }
         val template = templates.first { it.id == templateId }
 
         val base = remember(templateId) { NoteBuilder.build(template, video, lines, settings) }
-        var name by remember(templateId) { mutableStateOf(base.name) }
-        var folder by remember(templateId) { mutableStateOf(base.folder) }
-        var vault by remember(templateId) { mutableStateOf(base.vault) }
-        val overrides = remember(templateId) { mutableStateMapOf<String, String>() }
+        // Clipping again brings back what you filled in last time, for the same template.
+        val memo = remember(templateId) { video.lastClip?.takeIf { it.templateId == templateId } }
+        var name by remember(templateId) { mutableStateOf(memo?.name?.ifBlank { null } ?: base.name) }
+        var folder by remember(templateId) { mutableStateOf(memo?.folder?.takeIf { it.isNotBlank() } ?: base.folder) }
+        var vault by remember(templateId) { mutableStateOf(memo?.vault?.ifBlank { null } ?: base.vault) }
+        val overrides = remember(templateId) { mutableStateMapOf<String, String>().apply { memo?.values?.let { putAll(it) } } }
         val tags = remember(templateId) {
             mutableStateListOf<String>().apply {
-                base.properties.firstOrNull { it.isTags() }?.let { addAll(NoteBuilder.splitList(it.value).map { t -> t.removePrefix("#").trim('"') }) }
+                if (memo != null && memo.tags.isNotEmpty()) addAll(memo.tags)
+                else base.properties.firstOrNull { it.isTags() }?.let { addAll(NoteBuilder.splitList(it.value).map { t -> t.removePrefix("#").trim('"') }) }
             }
         }
         var detailsOpen by remember { mutableStateOf(false) }
@@ -125,6 +134,9 @@ fun SaveSheet(
         val folderUri = key?.let { settings.vaultFolders[it] } ?: settings.vaultFolderUri
 
         fun remember() {
+            app.library.edit(video.meta.id) {
+                it.copy(lastClip = ClipMemo(templateId, name, folder, vault, overrides.toMap(), tags.toList()))
+            }
             app.settings.update {
                 it.copy(
                     selectedTemplateId = templateId,
@@ -181,6 +193,7 @@ fun SaveSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Save to Obsidian", style = MaterialTheme.typography.headlineSmall)
+            if (memo != null) Text("Filled in from your last clip of this video.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             if (existing != null) {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {

@@ -73,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.data.ClipTemplate
+import app.marginalia.LockScreenActivity
 import app.marginalia.data.TemplateProperty
 import app.marginalia.obsidian.ClipperExport
 import app.marginalia.update.AdbInstaller
@@ -174,7 +175,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 )
                 if (query.isNotBlank() && !listOf(
                         SettingsKeys.look, SettingsKeys.reading, SettingsKeys.highlights, SettingsKeys.updates,
-                        SettingsKeys.obsidian, SettingsKeys.playback, SettingsKeys.advanced,
+                        SettingsKeys.obsidian, SettingsKeys.lock, SettingsKeys.playback, SettingsKeys.advanced,
                     ).any { hit(it) }
                 ) {
                     Text("Nothing matches \"$query\"", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -522,6 +523,57 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 )
             } }
 
+            // ---------- lock screen ----------
+            if (hit(SettingsKeys.lock)) item { Group("Lock screen") {
+                val lockCtx = androidx.compose.ui.platform.LocalContext.current
+                SwitchRow("Player on the lock screen", "Shows when the screen turns off while audio plays.", s.lockScreen) { v -> set { it.copy(lockScreen = v) } }
+                var canDraw by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(lockCtx)) }
+                val owner = remember {
+                    var c: android.content.Context = lockCtx
+                    while (c is android.content.ContextWrapper && c !is androidx.lifecycle.LifecycleOwner) c = c.baseContext
+                    c as? androidx.lifecycle.LifecycleOwner
+                }
+                androidx.compose.runtime.DisposableEffect(owner) {
+                    val o = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                        if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) canDraw = android.provider.Settings.canDrawOverlays(lockCtx)
+                    }
+                    owner?.lifecycle?.addObserver(o)
+                    onDispose { owner?.lifecycle?.removeObserver(o) }
+                }
+                if (canDraw) {
+                    Text("Display over other apps: allowed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text(
+                        "Android needs one more switch. Let Marginalia display over other apps. Without it, the lock screen may not show up by itself.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FilledTonalButton(onClick = {
+                        lockCtx.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:" + lockCtx.packageName),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }, shapes = ButtonDefaults.shapes()) { Text("Allow display over other apps") }
+                }
+                Label("Style")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("cover" to "Cover", "minimal" to "Minimal", "transcript" to "Words").forEach { (id, name) ->
+                        androidx.compose.material3.FilterChip(selected = s.lockStyle == id, onClick = { set { it.copy(lockStyle = id) } }, label = { Text(name) })
+                    }
+                }
+                Label("Background")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("art" to "Blurred cover", "accent" to "Theme colour", "black" to "Black").forEach { (id, name) ->
+                        androidx.compose.material3.FilterChip(selected = s.lockBackground == id, onClick = { set { it.copy(lockBackground = id) } }, label = { Text(name) })
+                    }
+                }
+                SwitchRow("Clock and date", null, s.lockClock) { v -> set { it.copy(lockClock = v) } }
+                SwitchRow("Show the words being spoken", null, s.lockTranscript) { v -> set { it.copy(lockTranscript = v) } }
+                SwitchRow("Highlight button", "Marks the sentence you are hearing.", s.lockHighlight) { v -> set { it.copy(lockHighlight = v) } }
+                FilledTonalButton(onClick = { LockScreenActivity.launch(lockCtx) }, shapes = ButtonDefaults.shapes()) { Text("Preview now") }
+            } }
+
             // ---------- advanced ----------
             if (hit(SettingsKeys.advanced)) item { Group("Advanced") {
                 Text(
@@ -549,6 +601,7 @@ private object SettingsKeys {
     const val highlights = "highlights highlight highlighter always show replace content holding word selects sentence paragraph in the note obsidian plain text syntax layout each quote callout bullet inline"
     const val updates = "updates update version install installer android shizuku wireless adb pair pairing code port check on its own sources github repo token mirror skip release"
     const val obsidian = "obsidian when i tap clip open save file copy share vaults vault folder reindex index tags notes search always every automatic auto properties property templates template new import export presets clipper settings reset"
+    const val lock = "lock screen lockscreen player cover minimal words background blurred theme colour black clock date transcript spoken highlight button display over other apps overlay permission"
     const val playback = "playback captions start playing open a video background audio screen off notification keep screen on"
     const val advanced = "advanced client version android ios vr youtube innertube"
 }

@@ -82,6 +82,18 @@ data class SavedVideo(
     /** Where the last clip of this video went, so it can be opened in Obsidian. */
     val noteVault: String = "",
     val notePath: String = "",
+    /** What was filled in the last time this video was clipped. It comes back next time. */
+    val lastClip: ClipMemo? = null,
+)
+
+@Serializable
+data class ClipMemo(
+    val templateId: String,
+    val name: String = "",
+    val folder: String = "",
+    val vault: String = "",
+    val values: Map<String, String> = emptyMap(),
+    val tags: List<String> = emptyList(),
 )
 
 @Serializable
@@ -174,6 +186,13 @@ data class AppSettings(
     // playback + transcript
     val backgroundPlay: Boolean = true,
     val keepScreenOn: Boolean = true,
+    // lock screen
+    val lockScreen: Boolean = false,
+    val lockStyle: String = "cover", // cover | minimal | transcript
+    val lockBackground: String = "art", // art | accent | black
+    val lockClock: Boolean = true,
+    val lockTranscript: Boolean = true,
+    val lockHighlight: Boolean = true,
     val captionLang: String = "",
     // advanced: client versions can be changed here if YouTube ever rejects the built-in ones
     val androidClientVersion: String = "20.10.38",
