@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -354,7 +355,7 @@ fun HomeScreen(
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(resume, key = { "r" + it.meta.id }) { v -> ResumeCard(v) { onOpen(v.meta.id) } }
+                        items(resume, key = { "r" + it.meta.id }) { v -> ResumeCard(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
                     }
                 }
             }
@@ -501,11 +502,14 @@ private fun PreviewCard(
 private val Color_scrim = androidx.compose.ui.graphics.Color(0xB3000000)
 
 @Composable
-private fun ResumeCard(v: SavedVideo, onClick: () -> Unit) {
+private fun ResumeCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val source = remember { MutableInteractionSource() }
     val radius = pressedRadius(source, 28.dp, 12.dp)
     Column(
-        Modifier.width(220.dp).springPress(source).clickable(source, null, onClick = onClick),
+        Modifier.width(220.dp).springPress(source).combinedClickable(source, null, onLongClick = {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
+        }, onClick = onClick),
     ) {
         Box {
             AsyncImage(
@@ -531,6 +535,7 @@ private fun ResumeCard(v: SavedVideo, onClick: () -> Unit) {
 
 @Composable
 private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val app = LocalApp.current
     val source = remember { MutableInteractionSource() }
     val radius = pressedRadius(source, 22.dp, 8.dp)
@@ -538,7 +543,9 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
             .springPress(source, 0.98f)
             .clip(RoundedCornerShape(26.dp))
-            .clickable(source, null, onClick = onClick)
+            .combinedClickable(source, null, onLongClick = {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
+            }, onClick = onClick)
             .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
