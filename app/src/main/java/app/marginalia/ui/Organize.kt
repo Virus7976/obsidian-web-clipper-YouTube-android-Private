@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import app.marginalia.data.AppSettings
 import app.marginalia.data.Playlist
 import app.marginalia.data.SavedVideo
+import app.marginalia.obsidian.Sender
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
@@ -196,6 +198,11 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 everyTag.filter { t -> v.tags.none { it.equals(t, true) } }.take(10).forEach { t ->
                     FilterChip(selected = false, onClick = { addTag(t) }, label = { Text("#$t") })
                 }
+            }
+
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            FilledTonalButton(onClick = { if (openVideoNote(ctx, app, v)) onDismiss() }, shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Open note in Obsidian")
             }
 
             // queue
@@ -452,4 +459,27 @@ fun OfflineBadge(id: String) {
         Icon(icon, null, Modifier.size(14.dp), tint = color)
         Text(text, style = MaterialTheme.typography.labelMedium, color = color)
     }
+}
+
+/**
+ * Opens the note for this video in Obsidian. Uses where the last clip went,
+ * and falls back to finding the note by its source link in the vault index.
+ * Returns false, after telling the user why, when there is nothing to open.
+ */
+fun openVideoNote(ctx: android.content.Context, application: app.marginalia.MarginaliaApp, v: SavedVideo): Boolean {
+    val s = application.settings.value
+    var vault = v.noteVault.ifBlank { s.vault }
+    var path = v.notePath
+    if (path.isBlank()) {
+        val key = s.linkedVault(s.vault)
+        val ref = key?.let { application.vaults.indexes.value[it] }?.noteForSource(v.meta.url)
+        if (key != null && ref != null) { vault = key; path = ref.path }
+    }
+    if (path.isBlank() || vault.isBlank()) {
+        android.widget.Toast.makeText(ctx, "No note yet. Clip this video first.", android.widget.Toast.LENGTH_SHORT).show()
+        return false
+    }
+    val ok = Sender.openNote(ctx, vault, path)
+    if (!ok) android.widget.Toast.makeText(ctx, "Obsidian is not installed.", android.widget.Toast.LENGTH_SHORT).show()
+    return ok
 }

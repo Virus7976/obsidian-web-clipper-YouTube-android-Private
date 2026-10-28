@@ -79,6 +79,9 @@ data class SavedVideo(
     /** Empty = in the main library. Otherwise the video lives in that playlist only. */
     val playlistId: String = "",
     val addedAt: Long = 0L,
+    /** Where the last clip of this video went, so it can be opened in Obsidian. */
+    val noteVault: String = "",
+    val notePath: String = "",
 )
 
 @Serializable

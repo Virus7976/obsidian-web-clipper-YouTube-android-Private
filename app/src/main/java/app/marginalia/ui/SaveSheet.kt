@@ -144,6 +144,9 @@ fun SaveSheet(
                     "share" -> Sender.share(ctx, note)
                     else -> Sender.addToObsidian(ctx, note)
                 }
+                if (r.ok && (kind == "addToObsidian" || kind == "saveFile")) {
+                    app.library.edit(video.meta.id) { it.copy(noteVault = note.vault, notePath = note.path) }
+                }
                 onDone(r.message, r.ok)
             }
         }
@@ -162,6 +165,7 @@ fun SaveSheet(
                         merged.addedHighlights.takeIf { it > 0 }?.let { "$it highlight${if (it == 1) "" else "s"}" },
                         merged.addedProps.takeIf { it > 0 }?.let { "$it propert${if (it == 1) "y" else "ies"}" },
                     )
+                    app.library.edit(video.meta.id) { it.copy(noteVault = vault, notePath = target.path) }
                     onDone("Updated ${target.name}: added ${bits.joinToString(" and ")}.", true)
                 } else onDone("Could not write ${target.name}.", false)
             }

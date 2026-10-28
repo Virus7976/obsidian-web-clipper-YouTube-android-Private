@@ -318,6 +318,11 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             onClick = { app.settings.update { it.copy(autoScroll = !it.autoScroll) } },
                         )
                         DropdownMenuItem(
+                            text = { Text("Open note in Obsidian") },
+                            leadingIcon = { Icon(Icons.Rounded.OpenInNew, null) },
+                            onClick = { menu = false; openVideoNote(ctx, app, video) },
+                        )
+                        DropdownMenuItem(
                             text = { Text("Tags, queue, offline audio") },
                             leadingIcon = { Icon(Icons.Rounded.Sell, null) },
                             onClick = { menu = false; showActions = true },
