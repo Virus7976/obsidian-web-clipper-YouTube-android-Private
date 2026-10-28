@@ -79,6 +79,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.data.Playlist
@@ -231,7 +234,7 @@ fun HomeScreen(
             if (visibleTabs.size > 1) item("tabs") {
                 FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     visibleTabs.forEach { id ->
-                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id)) })
+                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "playlists" -> playlists.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
                     }
                 }
             }
@@ -412,7 +415,17 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 shadowElevation = 8.dp,
             ) {
-                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val frac = if (player.durationSec > 0) (player.positionSec / player.durationSec).toFloat().coerceIn(0f, 1f) else 0f
+                val track = MaterialTheme.colorScheme.onPrimaryContainer
+                Row(
+                    Modifier.drawBehind {
+                        // A thin line along the bottom edge shows how far along the video is.
+                        val h = 3.dp.toPx()
+                        drawRect(track.copy(alpha = 0.12f), Offset(0f, size.height - h), Size(size.width, h))
+                        drawRect(track.copy(alpha = 0.55f), Offset(0f, size.height - h), Size(size.width * frac, h))
+                    }.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     AsyncImage(
                         model = nowId?.let { "https://i.ytimg.com/vi/$it/default.jpg" },
                         contentDescription = null,

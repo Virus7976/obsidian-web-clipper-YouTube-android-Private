@@ -69,6 +69,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material.icons.rounded.Sell
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -163,6 +167,22 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     var showActions by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var headerHidden by remember { mutableStateOf(false) }
+    // Full screen reading: no top row, player, bottom bar, status bar or navigation bar.
+    var immersive by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = immersive) { immersive = false }
+    androidx.compose.runtime.DisposableEffect(immersive) {
+        var c: android.content.Context = ctx
+        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+        val window = (c as? android.app.Activity)?.window
+        val controller = window?.let { androidx.core.view.WindowInsetsControllerCompat(it, it.decorView) }
+        if (immersive) {
+            controller?.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    }
 
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -267,10 +287,12 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     LaunchedEffect(ps.value.error) { if (ps.value.error != null) app.updates.checkSoon() }
     // "Show the video" is a setting. Otherwise the reader is listen-only and has no picture.
     var videoAsked by remember(videoId) { mutableStateOf(false) }
+    // Coming back to a video that already plays must not restart it just to show the picture.
+    val alreadyPlaying = remember(videoId) { app.player.state.value.videoId == videoId && app.player.exo.mediaItemCount > 0 }
     LaunchedEffect(ps.value.canWatch) {
         if (!videoAsked && ps.value.canWatch) {
             videoAsked = true
-            if (settings.pinPlayer && !ps.value.videoOn) app.player.setVideo(true)
+            if (!alreadyPlaying && settings.pinPlayer && !ps.value.videoOn) app.player.setVideo(true)
         }
     }
     // Find in this video. Searches only this transcript, nothing else.
@@ -296,8 +318,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Spacer(Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.height(if (immersive) 28.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
+            if (!immersive) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 Text(
                     video.meta.title,
@@ -309,6 +331,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 IconButton(onClick = { searching = !searching }) {
                     Icon(Icons.Rounded.Search, "Find in this video", tint = if (searching) scheme.primary else scheme.onSurface)
                 }
+                IconButton(onClick = { immersive = true }) { Icon(Icons.Rounded.Fullscreen, "Full screen") }
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -316,6 +339,11 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             text = { Text(if (settings.autoScroll) "Follow along: on" else "Follow along: off") },
                             leadingIcon = { Icon(Icons.Rounded.MyLocation, null, tint = if (settings.autoScroll) scheme.primary else scheme.onSurfaceVariant) },
                             onClick = { app.settings.update { it.copy(autoScroll = !it.autoScroll) } },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Full screen") },
+                            leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) },
+                            onClick = { menu = false; immersive = true },
                         )
                         DropdownMenuItem(
                             text = { Text("Open note in Obsidian") },
@@ -351,7 +379,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 }
             }
 
-            if (searching) {
+            if (searching && !immersive) {
                 FindBar(
                     query = query,
                     count = matchCount,
@@ -367,7 +395,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             }
 
             // Solid background, so nothing from the transcript can show through the player.
-            Column(Modifier.fillMaxWidth().background(scheme.background)) {
+            if (!immersive) Column(Modifier.fillMaxWidth().background(scheme.background)) {
                 PlayerBlock(video, ps, app.player, ctx)
                 if (video.chapters.isNotEmpty()) {
                     ChapterChips(video.chapters, activeChapter) { c ->
@@ -377,9 +405,13 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 }
             }
 
-            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+            // The long transcript is laid out only after the screen has slid in. Doing both at once made it stutter.
+            var settled by remember(videoId) { mutableStateOf(false) }
+            LaunchedEffect(videoId) { delay(380); settled = true }
+            val fade by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f, androidx.compose.animation.core.tween(220), label = "transcriptFade")
+            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().graphicsLayer { alpha = fade }) {
                 val d = doc
-                if (d != null) {
+                if (d != null && settled) {
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { c ->
@@ -438,7 +470,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         AnimatedVisibility(
             visible = away && settings.autoScroll && editingId == null,
             modifier = Modifier.align(Alignment.BottomCenter).padding(
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + (if (headerHidden) 20.dp else 86.dp),
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + (if (headerHidden || immersive) 20.dp else 86.dp),
             ),
             enter = androidx.compose.animation.slideInVertically(spring(0.6f, 420f)) { it } + androidx.compose.animation.scaleIn(spring(0.55f, 420f), initialScale = 0.6f) + fadeIn(),
             exit = androidx.compose.animation.scaleOut(spring(1f, 500f), targetScale = 0.7f) + fadeOut(),
@@ -493,7 +525,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         // Bottom bar: only what you need while reading. It slides away when you scroll down
         // and comes back when you scroll up. Follow along lives in the top menu.
         AnimatedVisibility(
-            visible = !headerHidden && editingId == null,
+            visible = !headerHidden && !immersive && editingId == null,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = androidx.compose.animation.slideInVertically(spring(0.75f, 420f)) { it } + fadeIn(),
             exit = androidx.compose.animation.slideOutVertically(spring(1f, 500f)) { it } + fadeOut(),
@@ -523,6 +555,17 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                         Text("Clip")
                     }
                 }
+            }
+        }
+
+        // The only control left in full screen. It is faint, so it does not pull the eye from the text.
+        AnimatedVisibility(
+            visible = immersive,
+            modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(top = 6.dp, end = 6.dp),
+            enter = fadeIn(), exit = fadeOut(),
+        ) {
+            IconButton(onClick = { immersive = false }) {
+                Icon(Icons.Rounded.FullscreenExit, "Leave full screen", tint = scheme.onSurface.copy(alpha = 0.35f))
             }
         }
 
