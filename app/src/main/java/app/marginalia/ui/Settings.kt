@@ -38,6 +38,14 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Highlight
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -102,9 +110,24 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
     }
     var pickFor by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
+    // null is the menu; otherwise the id of the open screen
+    var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    androidx.activity.compose.BackHandler(enabled = page != null) { page = null; query = "" }
     // every word typed must appear in the section's keyword list
     fun hit(words: String) = query.isBlank() ||
         query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }.all { words.contains(it) }
+    // a screen shows when it is open, or, while searching, when it matches
+    fun show(id: String, words: String) = if (query.isBlank()) page == id else hit(words)
+    val menu = listOf(
+        SettingsEntry("look", "Look", "Theme, colours, home layout", Icons.Rounded.Palette),
+        SettingsEntry("reading", "Reading", "Font, text size, the player", Icons.Rounded.MenuBook),
+        SettingsEntry("highlights", "Highlights", "How words are marked and saved", Icons.Rounded.Highlight),
+        SettingsEntry("obsidian", "Obsidian", "Vaults, templates, what a clip adds", Icons.Rounded.Description),
+        SettingsEntry("playback", "Playback and captions", "Autoplay, background, muting", Icons.Rounded.PlayCircle),
+        SettingsEntry("lock", "Lock screen", "The player when the screen is off", Icons.Rounded.Lock),
+        SettingsEntry("updates", "Updates", "Check for and install new versions", Icons.Rounded.SystemUpdate),
+        SettingsEntry("advanced", "Advanced", "Caption client versions", Icons.Rounded.Tune),
+    )
     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -159,8 +182,8 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
         ) {
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-                    Text("Settings", style = MaterialTheme.typography.headlineSmall)
+                    IconButton(onClick = { if (page != null) { page = null; query = "" } else onBack() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    Text(menu.firstOrNull { it.id == page }?.title ?: "Settings", style = MaterialTheme.typography.headlineSmall)
                 }
             }
             item("search") {
@@ -182,8 +205,30 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 }
             }
 
+            // ---------- the menu ----------
+            if (query.isBlank() && page == null) menu.forEach { e ->
+                item(e.id) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp).clip(RoundedCornerShape(22.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .clickable { page = e.id }.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(e.icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                            Text(e.title, style = MaterialTheme.typography.titleMedium)
+                            Text(e.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
             // ---------- look ----------
-            if (hit(SettingsKeys.look)) item { Group("Look") {
+            if (show("look", SettingsKeys.look)) item { Group("Look") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     androidx.compose.foundation.lazy.LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -249,7 +294,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- reading ----------
-            if (hit(SettingsKeys.reading)) item { Group("Reading") {
+            if (show("reading", SettingsKeys.reading)) item { Group("Reading") {
                 Label("Font")
                 Choices(
                     listOf("serif" to "Serif", "sans" to "Sans", "system" to "System") + (if (s.customFontPath.isNotBlank()) listOf("custom" to s.customFontName.ifBlank { "Mine" }) else emptyList()),
@@ -278,7 +323,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- highlights ----------
-            if (hit(SettingsKeys.highlights)) item { Group("Highlights") {
+            if (show("highlights", SettingsKeys.highlights)) item { Group("Highlights") {
                 SwitchRow("Highlighter", "Hold a line, drag to take more.", s.highlighterEnabled) { v -> set { it.copy(highlighterEnabled = v) } }
                 SwitchRow("Always show highlights", null, s.alwaysShowHighlights) { v -> set { it.copy(alwaysShowHighlights = v) } }
                 SwitchRow(
@@ -317,10 +362,10 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 )
             } }
 
-            if (hit(SettingsKeys.updates)) item { UpdateGroup(s, ::set) }
+            if (show("updates", SettingsKeys.updates)) item { UpdateGroup(s, ::set) }
 
             // ---------- obsidian ----------
-            if (hit(SettingsKeys.obsidian)) item { Group("Obsidian") {
+            if (show("obsidian", SettingsKeys.obsidian)) item { Group("Obsidian") {
                 Label("When I tap Clip")
                 Choices(
                     listOf("addToObsidian" to "Open Obsidian", "saveFile" to "Save file", "copyToClipboard" to "Copy", "share" to "Share"),
@@ -513,10 +558,11 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- playback ----------
-            if (hit(SettingsKeys.playback)) item { Group("Playback and captions") {
+            if (show("playback", SettingsKeys.playback)) item { Group("Playback and captions") {
                 SwitchRow("Start playing when I open a video", null, s.autoPlay) { v -> set { it.copy(autoPlay = v) } }
                 SwitchRow("Keep playing in the background","Audio continues with the screen off, with a notification.", s.backgroundPlay) { v -> set { it.copy(backgroundPlay = v) } }
                 SwitchRow("Keep the screen on", "Only while a video is playing.", s.keepScreenOn) { v -> set { it.copy(keepScreenOn = v) } }
+                SwitchRow("Pause when muted", "Turn the volume to zero and it pauses. Turn it up and it plays again.", s.pauseOnMute) { v -> set { it.copy(pauseOnMute = v) } }
                 OutlinedTextField(
                     value = s.captionLang,
                     onValueChange = { v -> set { it.copy(captionLang = v.trim()) } },
@@ -528,7 +574,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- lock screen ----------
-            if (hit(SettingsKeys.lock)) item { Group("Lock screen") {
+            if (show("lock", SettingsKeys.lock)) item { Group("Lock screen") {
                 val lockCtx = androidx.compose.ui.platform.LocalContext.current
                 SwitchRow("Player on the lock screen", "Shows when the screen turns off while audio plays.", s.lockScreen) { v -> set { it.copy(lockScreen = v) } }
                 var canDraw by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(lockCtx)) }
@@ -587,7 +633,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             } }
 
             // ---------- advanced ----------
-            if (hit(SettingsKeys.advanced)) item { Group("Advanced") {
+            if (show("advanced", SettingsKeys.advanced)) item { Group("Advanced") {
                 Text(
                     "Marginalia reads captions the way YouTube's own phone apps do. If captions ever stop loading, a newer client version below usually fixes it.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -605,6 +651,8 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp))
     }
 }
+
+private class SettingsEntry(val id: String, val title: String, val hint: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
 /** Every setting name in each section, so the search box can find a section by what is inside it. */
 private object SettingsKeys {

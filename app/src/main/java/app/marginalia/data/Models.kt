@@ -192,6 +192,8 @@ data class AppSettings(
     // playback + transcript
     val backgroundPlay: Boolean = true,
     val keepScreenOn: Boolean = true,
+    /** Pause when the volume goes to zero, and carry on when it comes back. */
+    val pauseOnMute: Boolean = true,
     // lock screen
     val lockScreen: Boolean = false,
     val lockStyle: String = "page", // page | cover | minimal

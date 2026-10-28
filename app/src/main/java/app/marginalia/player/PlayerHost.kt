@@ -98,6 +98,7 @@ class PlayerHost(
     private var current: Streams? = null
     private var job: Job? = null
     private var failures = 0
+    private var pausedByMute = false
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -113,6 +114,22 @@ class PlayerHost(
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying) }
+        }
+
+        override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
+            val silent = volume <= 0 || muted
+            if (silent && exo.playWhenReady && settings().pauseOnMute) {
+                pausedByMute = true
+                exo.pause()
+            } else if (!silent && pausedByMute) {
+                pausedByMute = false
+                if (settings().pauseOnMute && !exo.playWhenReady) exo.play()
+            }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            // You pressed play yourself, so the volume no longer decides.
+            if (playWhenReady) pausedByMute = false
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {

@@ -223,7 +223,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
                 placeholder = { Text("For example: Learning") },
             )
-            val catSuggestions = everyCategory.filterNot { it.equals(cat.trim(), true) }.take(10)
+            val catSuggestions = suggestFor(everyCategory, cat)
             if (catSuggestions.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(catSuggestions, key = { "sc$it" }) { c ->
@@ -255,7 +255,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 trailingIcon = { if (newTag.isNotBlank()) IconButton(onClick = { addTag(newTag) }) { Icon(Icons.Rounded.Add, "Add tag") } },
             )
             val everyTag = remember(videos) { videos.flatMap { it.tags }.distinctBy { it.lowercase() } }
-            val tagSuggestions = everyTag.filter { t -> v.tags.none { it.equals(t, true) } }.take(12)
+            val tagSuggestions = suggestFor(everyTag.filter { t -> v.tags.none { it.equals(t, true) } }, newTag.removePrefix("#"))
             if (tagSuggestions.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(tagSuggestions, key = { "st$it" }) { t ->
@@ -556,4 +556,13 @@ fun openVideoNote(ctx: android.content.Context, application: app.marginalia.Marg
     val ok = Sender.openNote(ctx, vault, path)
     if (!ok) android.widget.Toast.makeText(ctx, "Obsidian is not installed.", android.widget.Toast.LENGTH_SHORT).show()
     return ok
+}
+
+/** Names you already use, best match first. Typed letters may skip some. An empty box shows them all. */
+internal fun suggestFor(all: List<String>, typed: String, max: Int = 12): List<String> {
+    val q = typed.trim().replace(" ", "")
+    val pool = all.filterNot { it.equals(typed.trim(), true) }
+    if (q.isEmpty()) return pool.take(max)
+    return pool.mapNotNull { n -> app.marginalia.data.Omni.fuzzy(n, q)?.let { n to it.score } }
+        .sortedByDescending { it.second }.map { it.first }.take(max)
 }
