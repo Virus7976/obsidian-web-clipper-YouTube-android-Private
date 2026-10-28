@@ -448,6 +448,15 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     "Fill the sheet from my note", "When a video is already in your vault, the save sheet shows what that note has, so you can add to it.",
                     s.prefillExisting,
                 ) { v -> set { it.copy(prefillExisting = v) } }
+                SwitchRow(
+                    "Name notes by date, subject and description", "Like 2026-10-28_clipping_how-to-slow-time_v1. Off keeps the template's name.",
+                    s.nameSchema,
+                ) { v -> set { it.copy(nameSchema = v) } }
+                if (s.nameSchema) OutlinedTextField(
+                    value = s.nameSubject, onValueChange = { v -> set { it.copy(nameSubject = v) } },
+                    label = { Text("Default subject") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                )
                 Label("Added to every clip")
                 Text(
                     "These go on every clip, whatever the template says. You can still remove one while you save.",

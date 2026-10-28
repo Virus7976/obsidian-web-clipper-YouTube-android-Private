@@ -3,6 +3,8 @@ package app.marginalia.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import app.marginalia.data.NoteName
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -124,6 +126,22 @@ fun SaveSheet(
         val index = key?.let { indexes[it] }
         val existing: NoteRef? = remember(index, video.meta.url) { index?.noteForSource(video.meta.url) }
 
+        // The date_subject_description_v# name, when it is switched on in Settings > Obsidian.
+        val schema = settings.nameSchema
+        var subject by remember { mutableStateOf(settings.nameSubject.ifBlank { "clipping" }) }
+        var desc by remember { mutableStateOf(video.meta.title) }
+        var versionPick by remember { mutableStateOf<Int?>(null) }
+        val today = remember { java.time.LocalDate.now() }
+        val namePrefix = NoteName.prefix(today, subject, desc)
+        val autoVersion = remember(index, folder, namePrefix) {
+            val dir = folder.trim('/')
+            NoteName.nextVersion(
+                index?.notes.orEmpty().filter { it.path.substringBeforeLast('/', "") == dir }.map { it.name }, namePrefix,
+            )
+        }
+        val version = versionPick ?: autoVersion
+        val finalName = if (schema) NoteName.build(today, subject, desc, version) else name
+
         // The note that is already there, so the sheet can show what it has (Settings > Obsidian).
         val existingText by androidx.compose.runtime.produceState<String?>(null, existing?.uri, settings.prefillExisting) {
             value = if (settings.prefillExisting) existing?.uri?.let { u -> withContext(Dispatchers.IO) { Sender.readText(ctx, u) } } else null
@@ -148,7 +166,7 @@ fun SaveSheet(
         val note = NoteBuilder.build(
             template, video, lines, settings,
             overrides.toMap() + (tagsProp?.let { mapOf(it.property.id to tags.joinToString(",")) } ?: emptyMap()),
-            name, folder, vault,
+            finalName, folder, vault,
         )
         // "Yours to fill" is decided by the template, not by what is typed now. Otherwise the box
         // jumps into Details after the first letter and the text is lost.
@@ -159,10 +177,11 @@ fun SaveSheet(
 
         fun remember() {
             app.library.edit(video.meta.id) {
-                it.copy(lastClip = ClipMemo(templateId, name, folder, vault, overrides.toMap(), tags.toList()))
+                it.copy(lastClip = ClipMemo(templateId, finalName, folder, vault, overrides.toMap(), tags.toList()))
             }
             app.settings.update {
                 it.copy(
+                    recentSubjects = if (schema) (listOf(subject.trim()) + it.recentSubjects).filter { s -> s.isNotBlank() }.distinct().take(20) else it.recentSubjects,
                     selectedTemplateId = templateId,
                     // Only a vault you already added can become the default. A clip never adds one.
                     vault = if (vault in it.vaults) vault else it.vault,
@@ -312,7 +331,30 @@ fun SaveSheet(
                     modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
                 )
             }
-            OutlinedTextField(
+            if (schema) {
+                OutlinedTextField(
+                    value = subject, onValueChange = { subject = it }, label = { Text("Subject") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
+                )
+                val subjects = suggestFor((settings.recentSubjects + settings.nameSubject).filter { it.isNotBlank() }.distinctBy { it.lowercase() }, subject)
+                if (subjects.isNotEmpty()) Row(
+                    Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    subjects.forEach { s -> androidx.compose.material3.FilterChip(selected = false, onClick = { subject = s }, label = { Text(s) }) }
+                }
+                OutlinedTextField(
+                    value = desc, onValueChange = { desc = it }, label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Version", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    TextButton(onClick = { versionPick = (version - 1).coerceAtLeast(1) }) { Text("−") }
+                    Text("v$version", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { versionPick = version + 1 }) { Text("+") }
+                }
+                Text(finalName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            } else OutlinedTextField(
                 value = name, onValueChange = { name = it }, label = { Text("Note name") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
             )

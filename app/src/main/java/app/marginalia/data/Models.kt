@@ -176,6 +176,10 @@ data class AppSettings(
     val saveBehavior: String = "addToObsidian", // addToObsidian | saveFile | copyToClipboard | share
     /** When the video is already in the vault, fill the save sheet from that note so you can add to it. */
     val prefillExisting: Boolean = true,
+    /** Name notes like 2026-10-28_subject_description_v1. Off keeps the template's own name. */
+    val nameSchema: Boolean = false,
+    val nameSubject: String = "clipping",
+    val recentSubjects: List<String> = emptyList(),
     val vaults: List<String> = emptyList(),
     val vault: String = "",
     val vaultFolderUri: String = "",
