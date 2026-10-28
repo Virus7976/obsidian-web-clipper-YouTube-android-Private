@@ -104,7 +104,8 @@ class StreamFinder(
         val audio = adaptive.mapNotNull { it as? JsonObject }
             .filter { (it.str("mimeType") ?: "").startsWith("audio/") && it.str("url") != null }
             .sortedWith(
-                compareByDescending<JsonObject> { (it.str("mimeType") ?: "").startsWith("audio/mp4") }
+                compareByDescending<JsonObject> { isOriginalTrack(it) }
+                    .thenByDescending { (it.str("mimeType") ?: "").startsWith("audio/mp4") }
                     .thenByDescending { if ((it.num("bitrate") ?: 0.0) <= 200_000) it.num("bitrate") ?: 0.0 else 0.0 },
             )
             .firstOrNull() ?: return null
@@ -122,7 +123,10 @@ class StreamFinder(
         val info = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$id")
         val audio = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.isUrl }
-            .sortedWith(compareByDescending<org.schabi.newpipe.extractor.stream.AudioStream> { it.format?.suffix == "m4a" }
+            .sortedWith(compareByDescending<org.schabi.newpipe.extractor.stream.AudioStream> {
+                    it.audioTrackType == org.schabi.newpipe.extractor.stream.AudioTrackType.ORIGINAL
+                }
+                .thenByDescending { it.format?.suffix == "m4a" }
                 .thenByDescending { if (it.averageBitrate in 1..200) it.averageBitrate else 0 })
             .firstOrNull() ?: return null
         val video = info.videoStreams
@@ -184,6 +188,16 @@ class StreamFinder(
             if (r.isSuccessful) r.body?.string() else null
         }
     }.getOrNull()
+
+    /**
+     * YouTube can offer the same audio dubbed into other languages. The original track is marked
+     * "original" in its name. A track with no name at all is the only one, so it counts as original.
+     */
+    private fun isOriginalTrack(o: JsonObject): Boolean {
+        val track = o["audioTrack"] as? JsonObject ?: return true
+        val name = track.str("displayName").orEmpty()
+        return name.contains("original", true) || (name.isEmpty() && track["audioIsDefault"]?.let { (it as? JsonPrimitive)?.booleanOrNull } == true)
+    }
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.contentOrNull
     private fun JsonObject.num(k: String): Double? = (this[k] as? JsonPrimitive)?.doubleOrNull
