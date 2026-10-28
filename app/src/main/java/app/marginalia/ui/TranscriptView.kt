@@ -118,12 +118,16 @@ class TranscriptView(context: Context) : ScrollView(context) {
                 sp.setSpan(ForegroundColorSpan(s.mutedColor), r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             // Line height goes above each line, so the selection handles and magnifier sit on the text.
-            sp.setSpan(SpaceAbove(s.lineMult), 0, sp.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
             tv.setText(sp, TextView.BufferType.SPANNABLE)
             tv.setTextColor(s.textColor)
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.sizeSp)
             tv.setLineSpacing(0f, 1f)
             tv.typeface = s.typeface ?: Typeface.DEFAULT
+            // One fixed line height, with the spare room above the text. Absolute, so it never adds up.
+            val m = tv.paint.fontMetricsInt
+            (tv.text as Spannable).setSpan(
+                SpaceAbove(Math.round(s.lineMult * (m.descent - m.ascent))), 0, tv.text.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE,
+            )
             tv.highlightColor = (s.accent and 0x00FFFFFF) or 0x55000000
             tv.setLinkTextColor(s.accent)
             highlightSpans.clear()
@@ -459,11 +463,13 @@ class TranscriptView(context: Context) : ScrollView(context) {
     }
 }
 
-/** Puts the extra line height above the text instead of below it. */
-private class SpaceAbove(private val mult: Float) : android.text.style.LineHeightSpan {
+/** Makes every line [total] pixels tall, with the spare room above the text instead of below it. */
+private class SpaceAbove(private val total: Int) : android.text.style.LineHeightSpan {
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: android.graphics.Paint.FontMetricsInt) {
-        val extra = ((mult - 1f) * (fm.descent - fm.ascent)).toInt().coerceAtLeast(0)
-        fm.ascent -= extra
-        fm.top -= extra
+        val want = fm.descent - total
+        if (want < fm.ascent) {
+            fm.top -= fm.ascent - want
+            fm.ascent = want
+        }
     }
 }

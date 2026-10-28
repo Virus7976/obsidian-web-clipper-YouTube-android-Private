@@ -367,7 +367,7 @@ fun HomeScreen(
 
             if (showLibrary) {
                 item("lib-label") {
-                    SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} videos")
+                    SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} video${if (libraryVideos.size == 1) "" else "s"}")
                 }
                 if (libraryVideos.isNotEmpty()) item("lib-controls") {
                     LibraryControls(
@@ -551,15 +551,15 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
             Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (v.highlights.isNotEmpty()) {
+            FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (v.highlights.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Rounded.Highlight, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
                     Text("${v.highlights.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                 }
                 OfflineBadge(v.meta.id)
-                if (v.clippedAt > 0) {
+                if (v.clippedAt > 0) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Rounded.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    Text("Clipped", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Clipped", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
