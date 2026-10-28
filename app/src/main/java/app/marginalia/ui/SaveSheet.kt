@@ -117,8 +117,11 @@ fun SaveSheet(
             overrides.toMap() + (tagsProp?.let { mapOf(it.property.id to tags.joinToString(",")) } ?: emptyMap()),
             name, folder, vault,
         )
-        val mine = note.properties.filter { !it.isTags() && it.property.value.isBlank() }
-        val details = note.properties.filter { !it.isTags() && it.property.value.isNotBlank() }
+        // "Yours to fill" is decided by the template, not by what is typed now. Otherwise the box
+        // jumps into Details after the first letter and the text is lost.
+        val mineIds = base.properties.filter { !it.isTags() && it.value.isBlank() }.map { it.property.id }.toSet()
+        val mine = note.properties.filter { it.property.id in mineIds }
+        val details = note.properties.filter { !it.isTags() && it.property.id !in mineIds }
         val folderUri = key?.let { settings.vaultFolders[it] } ?: settings.vaultFolderUri
 
         fun remember() {

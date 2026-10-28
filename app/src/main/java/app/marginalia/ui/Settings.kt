@@ -450,11 +450,15 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     FilledTonalButton(onClick = {
                         val n = propName.trim()
                         if (n.isNotEmpty() && !n.equals("tags", true)) {
-                            set { it.copy(autoProps = it.autoProps.filterNot { x -> x.name.equals(n, true) } + TemplateProperty("auto:$n", n, propValue.trim())) }
+                            set { it.copy(autoProps = it.autoProps.filterNot { x -> x.name.equals(n, true) } + TemplateProperty("auto:$n", n, propValue.trim(), if (propValue.contains("{{date")) "date" else "")) }
                             propName = ""; propValue = ""
                         }
                     }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add property") }
                 }
+                androidx.compose.material3.TextButton(onClick = {
+                    propName = if (propName.isBlank()) "date added" else propName
+                    propValue = "{{date|date:\"YYYY-MM-DD\"}}"
+                }) { Text("Fill in today's date") }
 
                 Label("Templates")
                 s.templates.forEach { t ->

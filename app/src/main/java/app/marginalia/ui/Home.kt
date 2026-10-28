@@ -385,7 +385,7 @@ fun HomeScreen(
                 } else when (settings.libraryLayout) {
                     "grid" -> items(shown.chunked(2), key = { "g" + it.first().meta.id }) { pair -> VideoGridRow(pair, onOpen, more) }
                     "compact" -> items(shown, key = { "c" + it.meta.id }) { v -> VideoCompactRow(v, onOpen, more) }
-                    else -> items(shown, key = { "v" + it.meta.id }) { v -> VideoRow(v, more) { onOpen(v.meta.id) } }
+                    else -> items(shown, key = { "v" + it.meta.id }) { v -> androidx.compose.foundation.layout.Box(Modifier.animateItem()) { VideoRow(v, more) { onOpen(v.meta.id) } } }
                 }
             }
         }
@@ -556,6 +556,7 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
                     Icon(Icons.Rounded.Highlight, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
                     Text("${v.highlights.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                 }
+                OfflineBadge(v.meta.id)
                 if (v.clippedAt > 0) {
                     Icon(Icons.Rounded.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     Text("Clipped", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)

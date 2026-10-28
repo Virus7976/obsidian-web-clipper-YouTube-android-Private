@@ -91,6 +91,8 @@ fun OmniSheet(
     val index = indexes[vault]
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by remember { mutableStateOf(startWith) }
+    // Picking a tag clears the box, so the next tag starts from nothing.
+    val pick: (OmniItem) -> Unit = { item -> onPick(item); if (multi) query = "" }
     var filter by remember { mutableStateOf<OmniKind?>(null) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -130,14 +132,14 @@ fun OmniSheet(
                 },
                 shape = MaterialTheme.shapes.extraLarge,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { results.firstOrNull()?.let(onPick) }),
+                keyboardActions = KeyboardActions(onSearch = { results.firstOrNull()?.let { pick(it) } }),
             )
 
             if (multi && selected.isNotEmpty()) {
                 FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     selected.forEach { t ->
                         AssistChip(
-                            onClick = { onPick(OmniItem(OmniKind.Tag, "#$t", "", value = t)) },
+                            onClick = { pick(OmniItem(OmniKind.Tag, "#$t", "", value = t)) },
                             label = { Text("#$t") },
                             trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(16.dp)) },
                         )
@@ -184,7 +186,7 @@ fun OmniSheet(
                     }
                     LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
                         items(results, key = { it.kind.name + "|" + it.value + "|" + it.title }) { item ->
-                            ResultRow(item, picked = item.kind == OmniKind.Tag && item.value in selected) { onPick(item) }
+                            ResultRow(item, picked = item.kind == OmniKind.Tag && item.value in selected) { pick(item) }
                         }
                     }
                 }

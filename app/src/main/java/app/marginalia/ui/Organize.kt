@@ -20,7 +20,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
@@ -145,6 +147,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
     val playlists by app.playlists.all.collectAsState()
     val saved by app.audio.saved.collectAsState()
     val progress by app.audio.progress.collectAsState()
+    val failed by app.audio.failed.collectAsState()
     val queue by app.queue.ids.collectAsState()
     val v = videos.firstOrNull { it.meta.id == videoId }
     if (v == null) { onDismiss(); return }
@@ -217,10 +220,13 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                         Text("Audio is on this phone (${"%.0f".format(app.audio.sizeMb(videoId))} MB)", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         TextButton(onClick = { app.audio.remove(videoId) }) { Text("Remove") }
                     }
-                    else -> FilledTonalButton(onClick = { scope.launch { app.audio.save(videoId) } }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Save audio to play offline")
+                    else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (videoId in failed) Text("The last try failed. Check your connection, then try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        FilledTonalButton(onClick = { app.audio.saveAsync(videoId, v.meta.title) }, shapes = ButtonDefaults.shapes()) {
+                            Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (videoId in failed) "Try again" else "Save audio to play offline")
+                        }
                     }
                 }
             }
@@ -341,7 +347,7 @@ private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
                 Icon(Icons.Rounded.QueueMusic, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Add to queue")
             }
             FilledTonalButton(onClick = {
-                scope.launch { p.videoIds.forEach { if (!app.audio.has(it)) app.audio.save(it) } }
+                p.videoIds.forEach { id -> app.library.get(id)?.let { app.audio.saveAsync(id, it.meta.title) } }
             }, shapes = ButtonDefaults.shapes()) {
                 Icon(Icons.Rounded.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
                 val busy = p.videoIds.count { it in progress }
@@ -398,16 +404,15 @@ fun LazyListScope.queueTab(queue: List<String>, videos: List<SavedVideo>, nowId:
         }
     }
     items(rows, key = { "q" + it.meta.id }) { v ->
-        QueueRow(v, onClick = { onOpenVideo(v.meta.id) }, trailing = {
+        androidx.compose.foundation.layout.Box(Modifier.animateItem()) { QueueRow(v, onClick = { onOpenVideo(v.meta.id) }, trailing = {
             IconButton(onClick = { onRemove(v.meta.id) }) { Icon(Icons.Rounded.Close, "Remove from queue", tint = MaterialTheme.colorScheme.outline) }
-        })
+        }) }
     }
 }
 
 @Composable
 fun QueueRow(v: SavedVideo, onClick: () -> Unit, trailing: @Composable () -> Unit = {}) {
     val app = LocalApp.current
-    val saved by app.audio.saved.collectAsState()
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -418,10 +423,8 @@ fun QueueRow(v: SavedVideo, onClick: () -> Unit, trailing: @Composable () -> Uni
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-            Text(
-                v.meta.author + if (v.meta.id in saved) " · saved" else "",
-                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OfflineBadge(v.meta.id)
         }
         trailing()
     }
@@ -429,3 +432,24 @@ fun QueueRow(v: SavedVideo, onClick: () -> Unit, trailing: @Composable () -> Uni
 
 /** Used by the settings search and the home screen to describe the sort in words. */
 fun AppSettings.sortLabel() = LibrarySorts.firstOrNull { it.first == librarySort }?.second ?: "Recent"
+
+/** A small, plain line that says where a video's audio stands: on the phone, saving, or failed. */
+@Composable
+fun OfflineBadge(id: String) {
+    val app = LocalApp.current
+    val saved by app.audio.saved.collectAsState()
+    val progress by app.audio.progress.collectAsState()
+    val failed by app.audio.failed.collectAsState()
+    val scheme = MaterialTheme.colorScheme
+    val busy = progress[id]
+    val (icon, text, color) = when {
+        busy != null -> Triple(Icons.Rounded.Download, if (busy < 0f) "Saving…" else "Saving ${(busy * 100).toInt()}%", scheme.primary)
+        id in saved -> Triple(Icons.Rounded.CheckCircle, "Offline", scheme.primary)
+        id in failed -> Triple(Icons.Rounded.ErrorOutline, "Save failed", scheme.error)
+        else -> return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(icon, null, Modifier.size(14.dp), tint = color)
+        Text(text, style = MaterialTheme.typography.labelMedium, color = color)
+    }
+}

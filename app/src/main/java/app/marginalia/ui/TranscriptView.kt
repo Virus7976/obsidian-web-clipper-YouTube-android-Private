@@ -117,10 +117,12 @@ class TranscriptView(context: Context) : ScrollView(context) {
                 sp.setSpan(RelativeSizeSpan(0.68f), r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 sp.setSpan(ForegroundColorSpan(s.mutedColor), r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
+            // Line height goes above each line, so the selection handles and magnifier sit on the text.
+            sp.setSpan(SpaceAbove(s.lineMult), 0, sp.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
             tv.setText(sp, TextView.BufferType.SPANNABLE)
             tv.setTextColor(s.textColor)
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.sizeSp)
-            tv.setLineSpacing(0f, s.lineMult)
+            tv.setLineSpacing(0f, 1f)
             tv.typeface = s.typeface ?: Typeface.DEFAULT
             tv.highlightColor = (s.accent and 0x00FFFFFF) or 0x55000000
             tv.setLinkTextColor(s.accent)
@@ -394,6 +396,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
                 }
                 ID_ERASE -> range?.let { onErase(it.first, it.last) }
                 else -> if (item.itemId >= ID_COLOR && item.itemId < ID_COLOR + HighlightColors.size && range != null) {
+                    tv.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
                     onPaint(range.first, range.last, item.itemId - ID_COLOR)
                 }
             }
@@ -453,5 +456,14 @@ class TranscriptView(context: Context) : ScrollView(context) {
         const val ID_COPY = 201
         const val ID_SENTENCE = 202
         const val ID_PARAGRAPH = 203
+    }
+}
+
+/** Puts the extra line height above the text instead of below it. */
+private class SpaceAbove(private val mult: Float) : android.text.style.LineHeightSpan {
+    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: android.graphics.Paint.FontMetricsInt) {
+        val extra = ((mult - 1f) * (fm.descent - fm.ascent)).toInt().coerceAtLeast(0)
+        fm.ascent -= extra
+        fm.top -= extra
     }
 }

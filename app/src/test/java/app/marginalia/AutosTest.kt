@@ -34,3 +34,10 @@ class AutosTest {
         assertEquals("Liam's Git Vault", s.linkedVault("Liam's Git Vault"))
     }
 }
+
+class DateAddedTest {
+    @Test fun todayFilterGivesPlainDate() {
+        val out = app.marginalia.obsidian.Template.render("{{date|date:\"YYYY-MM-DD\"}}", mapOf("date" to "2026-10-27T18:21:00-06:00"))
+        assertEquals("2026-10-27", out)
+    }
+}

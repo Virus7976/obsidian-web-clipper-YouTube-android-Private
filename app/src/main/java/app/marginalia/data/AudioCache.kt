@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
@@ -32,6 +33,28 @@ class AudioCache(
     /** Ids being fetched now, with progress 0..1. A negative number means the size is not known yet. */
     val progress: StateFlow<Map<String, Float>> = _progress.asStateFlow()
 
+    private val _failed = MutableStateFlow<Set<String>>(emptySet())
+    /** Ids whose last save failed. Cleared when a new save starts. */
+    val failed: StateFlow<Set<String>> = _failed.asStateFlow()
+
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * Saves in the background, so closing a sheet or a screen does not stop it.
+     * Says the result in a toast, because a download you cannot see is a download you doubt.
+     */
+    fun saveAsync(id: String, title: String) {
+        if (has(id) || id in _progress.value) return
+        toast("Saving audio: ${title.take(40)}")
+        scope.launch {
+            val ok = save(id)
+            toast(if (ok) "Saved for offline: ${title.take(40)}" else "Could not save the audio. Check your connection and try again.")
+        }
+    }
+
+    private fun toast(text: String) = main.post { android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show() }
+
     private fun file(id: String) = File(dir, "$id.audio")
     private fun scan(): Set<String> = dir.listFiles().orEmpty().filter { it.name.endsWith(".audio") && it.length() > 0 }.map { it.name.removeSuffix(".audio") }.toSet()
 
@@ -52,9 +75,10 @@ class AudioCache(
         if (has(id)) return@withContext true
         if (id in _progress.value) return@withContext false
         _progress.update { it + (id to -1f) }
+        _failed.update { it - id }
         try {
             val ok = finder.candidates(id).firstOrNull { s -> runCatching { fetch(id, s) }.getOrDefault(false) } != null
-            if (ok) _saved.update { it + id }
+            if (ok) _saved.update { it + id } else _failed.update { it + id }
             ok
         } finally {
             _progress.update { it - id }

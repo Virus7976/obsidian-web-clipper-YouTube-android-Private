@@ -101,6 +101,7 @@ fun MorphingPlayButton(
     )
     val morph = remember { Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Pill) }
     val source = remember { MutableInteractionSource() }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Box(
         modifier = modifier
             .springPress(source, 0.9f)
@@ -110,7 +111,10 @@ fun MorphingPlayButton(
                 clip = true
             }
             .background(container)
-            .clickable(interactionSource = source, indication = null, onClick = onClick),
+            .clickable(interactionSource = source, indication = null) {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
