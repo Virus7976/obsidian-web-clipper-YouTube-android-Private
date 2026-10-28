@@ -13,7 +13,7 @@ Kotlin and Jetpack Compose on Material 3 Expressive.
 - **Reader.** Real selectable text. The word being spoken is marked. Tap a word to jump.
 - **Highlight.** Drag the handles to take exact words, or tap Sentence or Paragraph. Five
   colours. Each highlight keeps a timestamp link and an optional note.
-- **Obsidian syntax.** Yellow is `==text==`. Other colours are `<mark style="background: ...">`.
+- **Obsidian syntax.** A highlight is `==` then a coloured circle then the text then `==`. Yellow, red, green, blue, purple, orange.
 - **Your vaults.** Add a vault folder. Marginalia reads notes, folders and tags, and searches
   them (type `#` for tags, `/` for folders).
 - **Save sheet.** Fill your own fields first (Big Idea), pick tags from your vault, pick a

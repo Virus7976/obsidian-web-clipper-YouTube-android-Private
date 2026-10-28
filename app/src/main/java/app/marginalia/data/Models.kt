@@ -54,15 +54,19 @@ data class Highlight(
     val w1: Int = -1,
 )
 
-/** The five marker colours. Yellow is Obsidian's own ==highlight==. The rest use Highlightr's <mark> style. */
-data class HighlightColor(val name: String, val ui: Long, val obsidian: String?)
+/**
+ * The marker colours. In the note a colour is a coloured circle right after the opening marks.
+ * New colours go at the end, because saved highlights remember a colour by its place in this list.
+ */
+data class HighlightColor(val name: String, val ui: Long, val emoji: String)
 
 val HighlightColors = listOf(
-    HighlightColor("Yellow", 0xFFF2C14E, null),
-    HighlightColor("Red", 0xFFFF6B6B, "#FF5582A6"),
-    HighlightColor("Green", 0xFF5BD98C, "#BBFABBA6"),
-    HighlightColor("Blue", 0xFF6AA8FF, "#ADCCFFA6"),
-    HighlightColor("Purple", 0xFFB58CFF, "#D2B3FFA6"),
+    HighlightColor("Yellow", 0xFFF2C14E, "🟡"),
+    HighlightColor("Red", 0xFFFF6B6B, "🔴"),
+    HighlightColor("Green", 0xFF5BD98C, "🟢"),
+    HighlightColor("Blue", 0xFF6AA8FF, "🔵"),
+    HighlightColor("Purple", 0xFFB58CFF, "🟣"),
+    HighlightColor("Orange", 0xFFF0A04B, "🟠"),
 )
 
 @Serializable

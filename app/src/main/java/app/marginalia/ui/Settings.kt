@@ -295,7 +295,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 Label("In the note")
                 Choices(listOf("obsidian" to "Obsidian highlight", "plain" to "Plain text"), s.highlightSyntax) { v -> set { it.copy(highlightSyntax = v) } }
                 Text(
-                    "Yellow is written as ==text==. Other colours use <mark style=\"background: …\">, the style the Highlightr plugin uses.",
+                    "Each colour is a coloured circle right after the opening ==. Yellow, red, green, blue, purple and orange.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Label("Layout of each highlight")

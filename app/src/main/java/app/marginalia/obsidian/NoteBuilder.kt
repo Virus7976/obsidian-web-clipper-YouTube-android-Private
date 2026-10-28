@@ -25,12 +25,12 @@ data class BuiltNote(
 object NoteBuilder {
     fun timeLink(id: String, sec: Double) = "https://www.youtube.com/watch?v=$id&t=${sec.toInt()}s"
 
-    /** Obsidian's own ==highlight== for yellow, a Highlightr-style <mark> for the other colours. */
+    /** The colour is a coloured circle right after the opening marks, then the text. */
     fun styled(h: app.marginalia.data.Highlight, settings: AppSettings): String {
         val text = h.text.replace(Regex("\\s*\\n\\s*"), " ").trim()
         if (settings.highlightSyntax != "obsidian") return text
-        val hex = app.marginalia.data.HighlightColors.getOrNull(h.color)?.obsidian
-        return if (hex == null) "==$text==" else "<mark style=\"background: $hex;\">$text</mark>"
+        val emoji = app.marginalia.data.HighlightColors.getOrNull(h.color)?.emoji.orEmpty()
+        return "==$emoji$text=="
     }
 
     fun highlightEntry(video: SavedVideo, h: app.marginalia.data.Highlight, settings: AppSettings): String {

@@ -102,8 +102,8 @@ class NoteTest {
         val t = s.templates.first { it.name == "Big Idea" }
         val note = NoteBuilder.build(t, base.copy(highlights = both), lines, s)
         println("=== BIG IDEA ===\n${note.markdown}")
-        assertTrue(note.content.contains("> ==${doc.plainText(1, 3)}=="))
-        assertTrue(note.content.contains("<mark style=\"background: #FF5582A6;\">${doc.plainText(10, 12)}</mark>"))
+        assertTrue(note.content.contains("> ==🟡${doc.plainText(1, 3)}=="))
+        assertTrue(note.content.contains("==🔴${doc.plainText(10, 12)}=="))
         assertTrue(note.content.contains("&t="))
         assertTrue(word(1).isNotEmpty())
     }
