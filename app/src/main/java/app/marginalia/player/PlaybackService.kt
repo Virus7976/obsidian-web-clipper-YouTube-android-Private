@@ -26,24 +26,17 @@ class PlaybackService : MediaSessionService() {
         val app = application as MarginaliaApp
         val highlight = SessionCommand(ACTION_HIGHLIGHT, Bundle.EMPTY)
 
-        // Back 10, Highlight, Forward 10. Play, pause and the seek bar are drawn by Android itself.
+        // Android draws the seek buttons from the player's commands. We offer back 10 and forward 10
+        // in place of "previous" and "next", so there is no jump to the start. Highlight is ours.
         val buttons = ImmutableList.of(
-            CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
-                .setDisplayName("Back 10 seconds")
-                .setPlayerCommand(Player.COMMAND_SEEK_BACK)
-                .build(),
             CommandButton.Builder(CommandButton.ICON_UNDEFINED)
                 .setCustomIconResId(R.drawable.ic_highlight)
                 .setDisplayName("Highlight")
                 .setSessionCommand(highlight)
                 .build(),
-            CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
-                .setDisplayName("Forward 10 seconds")
-                .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
-                .build(),
         )
 
-        session = MediaSession.Builder(this, app.player.exo)
+        session = MediaSession.Builder(this, SkipPlayer(app.player.exo))
             .setCustomLayout(buttons)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
@@ -89,4 +82,26 @@ class PlaybackService : MediaSessionService() {
     companion object {
         const val ACTION_HIGHLIGHT = "app.marginalia.HIGHLIGHT"
     }
+}
+
+/** Shows back 10 and forward 10 where Android would show previous and next. */
+private class SkipPlayer(player: Player) : androidx.media3.common.ForwardingPlayer(player) {
+    private val removed = listOf(
+        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_NEXT,
+        Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+    )
+
+    override fun getAvailableCommands(): Player.Commands {
+        val b = super.getAvailableCommands().buildUpon()
+        removed.forEach { b.remove(it) }
+        return b.add(Player.COMMAND_SEEK_BACK).add(Player.COMMAND_SEEK_FORWARD).build()
+    }
+
+    override fun isCommandAvailable(command: Int): Boolean =
+        availableCommands.contains(command)
+
+    override fun seekToPrevious() = seekBack()
+    override fun seekToNext() = seekForward()
+    override fun seekToPreviousMediaItem() = seekBack()
+    override fun seekToNextMediaItem() = seekForward()
 }
