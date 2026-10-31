@@ -56,6 +56,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
     var loadingMore by remember(url) { mutableStateOf(false) }
     var query by remember(url) { mutableStateOf("") }
     var actionsFor by remember { mutableStateOf<String?>(null) }
+    var actionsMeta by remember { mutableStateOf<app.marginalia.data.VideoMeta?>(null) }
 
     LaunchedEffect(url) {
         runCatching { ChannelSource.open(app.youtube, url) }
@@ -63,7 +64,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
             .onFailure { error = "Could not open that channel. Check your connection." }
     }
 
-    actionsFor?.let { id -> VideoActionsSheet(id, onDismiss = { actionsFor = null }) }
+    actionsFor?.let { id -> VideoActionsSheet(id, pending = actionsMeta, onDismiss = { actionsFor = null }) }
     val inLibrary = remember(library) { library.map { it.meta.id }.toSet() }
     val o = opened
     Box(Modifier.fillMaxSize()) {
@@ -118,7 +119,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
                     )
                 }
                 items(shown, key = { "cv" + it.meta.id }) { v ->
-                    val options: () -> Unit = { scope.launch { if (app.addToLibrary(v.meta.id)) actionsFor = v.meta.id } }
+                    val options: () -> Unit = { actionsMeta = v.meta; actionsFor = v.meta.id }
                     ChannelVideoRow(
                         v, showChannel = false, saved = v.meta.id in inLibrary,
                         onOptions = options,

@@ -109,6 +109,8 @@ fun HomeScreen(
 
     var addOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    var actionsMeta by remember { mutableStateOf<VideoMeta?>(null) }
+    var newPlaylistOpen by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<String?>(null) }
     var feedFilter by remember { mutableStateOf("all") }
     var addInitial by remember { mutableStateOf<String?>(null) }
@@ -220,7 +222,7 @@ fun HomeScreen(
                 query = query,
                 subs = subs, feed = feed, busy = feedBusy, library = videos,
                 filter = feedFilter, onFilter = { feedFilter = it },
-                onOptions = { id -> scope.launch { if (app.addToLibrary(id)) { actionsInPlaylist = false; actionsFor = id } } },
+                onOptions = { id -> actionsInPlaylist = false; actionsMeta = feed.items.firstOrNull { it.meta.id == id }?.meta; actionsFor = id },
                 onQueue = { id -> scope.launch {
                     if (app.addToLibrary(id)) {
                         app.queue.add(id)
@@ -284,6 +286,13 @@ fun HomeScreen(
                     }
                 }
                 if (page == "playlists") {
+                    item("pl-new") {
+                        TextButton(onClick = { newPlaylistOpen = true }, modifier = Modifier.padding(horizontal = 10.dp)) {
+                            Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("New playlist")
+                        }
+                    }
                     playlistsTab(
                         playlists = playlists.filter { matchesQuery(query, it.title) }, videos = videos, openId = null,
                         onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen, onMore = { actionsInPlaylist = true; actionsFor = it },
@@ -324,13 +333,18 @@ fun HomeScreen(
         }
         }
 
+        if (newPlaylistOpen) NewPlaylistDialog(
+            onDismiss = { newPlaylistOpen = false },
+            onCreate = { name -> app.playlists.create(name); newPlaylistOpen = false },
+        )
+
         if (addOpen) AddSheet(
             initial = addInitial,
             onDismiss = { addOpen = false; addInitial = null },
             onPlaylist = { openPlaylist = it; tabRequest = "library" },
         )
 
-        actionsFor?.let { id -> VideoActionsSheet(id, inPlaylist = actionsInPlaylist, onDismiss = { actionsFor = null }) }
+        actionsFor?.let { id -> VideoActionsSheet(id, inPlaylist = actionsInPlaylist, pending = actionsMeta, onDismiss = { actionsFor = null }) }
 
         // Now playing pill
         val nowId = player.videoId

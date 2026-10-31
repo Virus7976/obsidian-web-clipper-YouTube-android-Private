@@ -23,6 +23,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import app.marginalia.data.WATCH_LATER
+import app.marginalia.data.VideoMeta
+import androidx.compose.material.icons.rounded.WatchLater
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -145,7 +148,11 @@ fun LibraryControls(
 /** Everything you can do to one video, in one sheet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: () -> Unit) {
+/**
+ * [pending] is a video that is not in the library yet, for example one from the feed. The sheet can
+ * show it and act on it. It joins the library only when you choose something that needs it.
+ */
+fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: VideoMeta? = null, onDismiss: () -> Unit) {
     val app = LocalApp.current
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val videos by app.library.videos.collectAsState()
@@ -155,9 +162,15 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
     val failed by app.audio.failed.collectAsState()
     val queue by app.queue.ids.collectAsState()
     val scheme = MaterialTheme.colorScheme
+    val inLib = videos.any { it.meta.id == videoId }
     val v = videos.firstOrNull { it.meta.id == videoId }
+        ?: pending?.takeIf { it.id == videoId }?.let { SavedVideo(meta = it) }
     if (v == null) { onDismiss(); return }
+    val scope = rememberCoroutineScope()
+    // Looking costs nothing. A choice that needs the video in the library puts it there first.
+    fun act(block: () -> Unit) { if (inLib) block() else scope.launch { if (app.addToLibrary(videoId)) block() } }
     var confirmRemove by remember { mutableStateOf(false) }
+    var newPlaylist by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -181,9 +194,20 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
             val busy = progress[videoId]
             val inQueue = videoId in queue
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ActionTile(Icons.Rounded.PlayArrow, "Play next", false, Modifier.weight(1f)) { app.queue.playNext(videoId); onDismiss() }
+                ActionTile(Icons.Rounded.PlayArrow, "Play next", false, Modifier.weight(1f)) { act { app.queue.playNext(videoId); onDismiss() } }
                 ActionTile(Icons.Rounded.QueueMusic, if (inQueue) "In queue" else "Queue", inQueue, Modifier.weight(1f)) {
-                    if (inQueue) app.queue.remove(videoId) else app.queue.add(videoId)
+                    act { if (inQueue) app.queue.remove(videoId) else app.queue.add(videoId) }
+                }
+                val later = playlists.firstOrNull { it.id == WATCH_LATER }?.videoIds?.contains(videoId) == true
+                ActionTile(if (later) Icons.Rounded.CheckCircle else Icons.Rounded.WatchLater, if (later) "On the list" else "Watch later", later, Modifier.weight(1f)) {
+                    act {
+                        if (later) app.playlists.removeVideo(WATCH_LATER, videoId)
+                        else {
+                            app.playlists.watchLater()
+                            app.playlists.addVideo(WATCH_LATER, videoId)
+                            android.widget.Toast.makeText(ctx, "Added to Watch later.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
                 ActionTile(
                     if (isSaved) Icons.Rounded.CheckCircle else Icons.Rounded.Download,
@@ -201,10 +225,9 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                             app.audio.remove(videoId)
                             android.widget.Toast.makeText(ctx, "Removed the saved audio.", android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        else -> app.audio.saveAsync(videoId, v.meta.title)
+                        else -> act { app.audio.saveAsync(videoId, v.meta.title) }
                     }
                 }
-                ActionTile(Icons.Rounded.OpenInNew, "Obsidian", false, Modifier.weight(1f)) { if (openVideoNote(ctx, app, v)) onDismiss() }
             }
             if (isSaved) Text(
                 "Audio is on this phone, ${"%.0f".format(app.audio.sizeMb(videoId))} MB. Tap Offline to remove it.",
@@ -216,12 +239,23 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
             )
 
             val nav = LocalNav.current
-            androidx.compose.material3.TextButton(onClick = { nav.openChannelOfVideo(videoId); onDismiss() }) {
-                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Go to ${v.meta.author.ifBlank { "the channel" }}")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.compose.material3.TextButton(onClick = { if (openVideoNote(ctx, app, v)) onDismiss() }) {
+                    Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Open note")
+                }
+                androidx.compose.material3.TextButton(onClick = { nav.openChannelOfVideo(videoId); onDismiss() }) {
+                    Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Go to ${v.meta.author.ifBlank { "the channel" }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
 
+            if (!inLib) androidx.compose.material3.FilledTonalButton(
+                onClick = { scope.launch { app.addToLibrary(videoId) } }, modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add to library, to tag and sort it") }
+            if (inLib) {
             // organize
             SectionTitle("Category")
             val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
@@ -272,22 +306,26 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 }
             }
 
-            if (playlists.isNotEmpty()) {
-                SectionTitle("Playlists")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    playlists.forEach { p ->
-                        val inIt = videoId in p.videoIds
-                        FilterChip(
-                            selected = inIt,
-                            onClick = { if (inIt) app.playlists.removeVideo(p.id, videoId) else app.playlists.addVideo(p.id, videoId) },
-                            label = { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        )
-                    }
+            SectionTitle("Playlists")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                playlists.forEach { p ->
+                    val inIt = videoId in p.videoIds
+                    FilterChip(
+                        selected = inIt,
+                        onClick = { if (inIt) app.playlists.removeVideo(p.id, videoId) else app.playlists.addVideo(p.id, videoId) },
+                        label = { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
                 }
+                androidx.compose.material3.AssistChip(
+                    onClick = { newPlaylist = true },
+                    label = { Text("New playlist") },
+                    leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) },
+                )
+            }
             }
 
             // footer
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (inLib) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { app.library.edit(videoId) { it.copy(pinned = !it.pinned) } }) {
                     Icon(Icons.Rounded.PushPin, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (v.pinned) "Unpin" else "Pin")
                 }
@@ -299,6 +337,15 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
             }
         }
     }
+
+    if (newPlaylist) NewPlaylistDialog(
+        onDismiss = { newPlaylist = false },
+        onCreate = { name ->
+            val p = app.playlists.create(name)
+            app.playlists.addVideo(p.id, videoId)
+            newPlaylist = false
+        },
+    )
 
     if (confirmRemove) {
         androidx.compose.material3.AlertDialog(
@@ -376,7 +423,7 @@ fun LazyListScope.playlistsTab(
         if (playlists.isEmpty()) {
             item("pl-empty") {
                 Text(
-                    "No playlists yet. Paste a YouTube playlist link on the Add tab. It imports here, not into your library.",
+                    "No playlists yet. Tap New playlist, or tap Add and paste a YouTube playlist link.",
                     Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -420,6 +467,16 @@ private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
         TextButton(onClick = onBack) { Text("‹ Library") }
         Text(p.title, style = MaterialTheme.typography.titleLarge)
         Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { app.playlists.setRemoveWhenWatched(p.id, !p.removeWhenWatched) }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Remove videos as I watch them", style = MaterialTheme.typography.bodyLarge)
+                Text("When one plays to the end, it leaves this playlist.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.material3.Switch(checked = p.removeWhenWatched, onCheckedChange = { app.playlists.setRemoveWhenWatched(p.id, it) })
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 val ids = p.videoIds.filter { app.library.get(it) != null }
@@ -576,4 +633,22 @@ internal fun suggestFor(all: List<String>, typed: String, max: Int = 12): List<S
     if (q.isEmpty()) return pool.take(max)
     return pool.mapNotNull { n -> app.marginalia.data.Omni.fuzzy(n, q)?.let { n to it.score } }
         .sortedByDescending { it.second }.map { it.first }.take(max)
+}
+
+/** Asks for a name, then makes the playlist. */
+@Composable
+fun NewPlaylistDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New playlist") },
+        text = {
+            OutlinedTextField(
+                value = name, onValueChange = { name = it }, singleLine = true, shape = RoundedCornerShape(18.dp),
+                placeholder = { Text("For example: Watch this week") },
+            )
+        },
+        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim()) }) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

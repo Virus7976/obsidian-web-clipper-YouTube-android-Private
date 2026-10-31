@@ -107,6 +107,8 @@ data class Playlist(
     val listId: String = "",
     val videoIds: List<String> = emptyList(),
     val importedAt: Long = 0L,
+    /** When a video in this playlist is watched to the end, it leaves the playlist. */
+    val removeWhenWatched: Boolean = false,
 )
 
 @Serializable

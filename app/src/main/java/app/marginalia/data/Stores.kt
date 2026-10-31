@@ -124,6 +124,8 @@ class Library(private val context: Context) :
 }
 
 /** Imported playlists. The videos live in [Library], marked with the playlist id. */
+const val WATCH_LATER = "watch-later"
+
 class Playlists(context: Context) : JsonFileStore<List<Playlist>>(File(context.filesDir, "playlists.json")) {
     private val _state = MutableStateFlow(readOrNull().orEmpty())
     val all: StateFlow<List<Playlist>> = _state.asStateFlow()
@@ -140,6 +142,23 @@ class Playlists(context: Context) : JsonFileStore<List<Playlist>>(File(context.f
 
     fun remove(id: String) {
         _state.update { list -> list.filterNot { it.id == id } }
+        persist(_state.value)
+    }
+
+    /** A playlist you make yourself. */
+    fun create(title: String, removeWhenWatched: Boolean = false): Playlist {
+        val now = System.currentTimeMillis()
+        val p = Playlist("my-" + now.toString(36), title.trim(), "", emptyList(), now, removeWhenWatched)
+        put(p)
+        return p
+    }
+
+    /** The built in "Watch later" playlist. Made the first time it is used. Videos leave it when watched. */
+    fun watchLater(): Playlist = get(WATCH_LATER)
+        ?: Playlist(WATCH_LATER, "Watch later", "", emptyList(), System.currentTimeMillis(), removeWhenWatched = true).also { put(it) }
+
+    fun setRemoveWhenWatched(id: String, on: Boolean) {
+        _state.update { list -> list.map { if (it.id == id) it.copy(removeWhenWatched = on) else it } }
         persist(_state.value)
     }
 

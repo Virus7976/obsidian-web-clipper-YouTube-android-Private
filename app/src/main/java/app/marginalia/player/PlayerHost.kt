@@ -93,6 +93,10 @@ class PlayerHost(
     /** Called when a video plays to its end. The queue hooks in here. */
     var onEnded: (() -> Unit)? = null
 
+    /** Called once when a video gets within the last 5 percent, so a playlist can drop it. */
+    var onWatched: ((String) -> Unit)? = null
+    private var watchedId: String? = null
+
     private var controllerFuture: Any? = null
     private var queue: ReceiveChannel<Streams>? = null
     private var current: Streams? = null
@@ -147,6 +151,11 @@ class PlayerHost(
             if (_state.value.videoId != null) {
                 val pos = exo.currentPosition / 1000.0
                 val dur = exo.duration.takeIf { it != C.TIME_UNSET }?.div(1000.0)
+                val vid = _state.value.videoId
+                if (dur != null && dur > 60 && vid != null) {
+                    if (pos >= dur * 0.95 && watchedId != vid) { watchedId = vid; onWatched?.invoke(vid) }
+                    else if (pos < dur * 0.5 && watchedId == vid) watchedId = null
+                }
                 _state.update { s ->
                     if (kotlin.math.abs(s.positionSec - pos) < 0.04 && (dur == null || dur == s.durationSec)) s
                     else s.copy(positionSec = pos, durationSec = dur ?: s.durationSec)

@@ -55,9 +55,19 @@ class MarginaliaApp : Application() {
         audio = AudioCache(this, youtube, finder) { settings.value }
         player = PlayerHost(this, finder) { settings.value }
         player.cache = audio
-        player.onEnded = ::playNextInQueue
+        player.onEnded = { player.state.value.videoId?.let(::markWatched); playNextInQueue() }
+        player.onWatched = ::markWatched
         seedFromBundledClipperSettings()
         updates.checkIfDue()
+    }
+
+    /** A video was watched to the end. It leaves every playlist that is set to drop watched videos. */
+    fun markWatched(id: String) {
+        playlists.all.value.filter { it.removeWhenWatched && id in it.videoIds }.forEach { p ->
+            playlists.removeVideo(p.id, id)
+            // An imported playlist hides its videos from the library. Let this one go there.
+            if (library.get(id)?.playlistId == p.id) library.edit(id) { it.copy(playlistId = "") }
+        }
     }
 
     /** Puts a video in the library if it is not there yet, reading its details first. False when it cannot be read. */
