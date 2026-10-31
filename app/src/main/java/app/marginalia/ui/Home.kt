@@ -108,6 +108,9 @@ fun HomeScreen(
     val player by app.player.state.collectAsState()
 
     var addOpen by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var showPinned by remember { mutableStateOf(false) }
+    var feedFilter by remember { mutableStateOf("all") }
     var addInitial by remember { mutableStateOf<String?>(null) }
     val subs by app.subscriptions.all.collectAsState()
     val feed by app.feed.state.collectAsState()
@@ -139,6 +142,14 @@ fun HomeScreen(
     val showFeed = tab == "feed"
     val showQueue = tab == "queue"
     LaunchedEffect(tab, subs.size) { if (tab == "feed") app.feed.refresh() }
+    LaunchedEffect(tab) { query = ""; showPinned = false }
+    androidx.activity.compose.BackHandler(enabled = query.isNotEmpty() || showPinned || openPlaylist != null) {
+        when {
+            query.isNotEmpty() -> query = ""
+            showPinned -> showPinned = false
+            else -> openPlaylist = null
+        }
+    }
     var refreshing by remember { mutableStateOf(false) }
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
@@ -193,25 +204,49 @@ fun HomeScreen(
                 }
             }
 
+            item("search") {
+                SearchField(
+                    query, { query = it },
+                    when {
+                        showFeed -> "Search the feed"
+                        showQueue -> "Search the queue"
+                        openPlaylist != null -> "Search this playlist"
+                        else -> "Search titles, channels, tags, highlights"
+                    },
+                )
+            }
+
             if (showFeed) feedTab(
-                subs = subs, feed = feed, busy = feedBusy, inLibrary = videos.map { it.meta.id }.toSet(),
+                query = query,
+                subs = subs, feed = feed, busy = feedBusy, library = videos,
+                filter = feedFilter, onFilter = { feedFilter = it },
+                onOptions = { id -> scope.launch { if (app.addToLibrary(id)) { actionsInPlaylist = false; actionsFor = id } } },
+                onQueue = { id -> scope.launch {
+                    if (app.addToLibrary(id)) {
+                        app.queue.add(id)
+                        android.widget.Toast.makeText(ctx, "Added to the queue.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } },
                 onOpenVideo = onOpen, onOpenChannel = nav.openChannel,
                 onFind = { addInitial = null; addOpen = true },
             )
             if (showQueue) queueTab(
-                queue = queue, videos = videos, nowId = player.videoId, onOpenVideo = onOpen,
+                queue = if (query.isBlank()) queue else queue.filter { id -> videos.firstOrNull { it.meta.id == id }?.matchesQuery(query) == true },
+                videos = videos, nowId = if (query.isBlank()) player.videoId else null, onOpenVideo = onOpen,
                 onClear = { app.queue.clear() }, onRemove = { app.queue.remove(it) },
             )
 
             val libraryVideos = videos.filter { it.playlistId.isEmpty() }
             val inPlaylist = showLibrary && openPlaylist != null && playlists.any { it.id == openPlaylist }
             if (inPlaylist) playlistsTab(
-                playlists = playlists, videos = videos, openId = openPlaylist,
+                playlists = playlists, videos = if (query.isBlank()) videos else videos.filter { it.matchesQuery(query) }, openId = openPlaylist,
                 onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen,
                 onMore = { actionsInPlaylist = true; actionsFor = it },
             )
+            val searching = query.isNotBlank()
+            val browsing = showLibrary && !inPlaylist && !searching && !showPinned
             val resume = libraryVideos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }.take(10)
-            if (showLibrary && !inPlaylist && playlists.isNotEmpty()) {
+            if (browsing && playlists.isNotEmpty()) {
                 item("pl-label") { SectionLabel("Playlists", trailing = "${playlists.size}") }
                 item("pl-row") {
                     LazyRow(
@@ -222,7 +257,7 @@ fun HomeScreen(
                     }
                 }
             }
-            if (showLibrary && !inPlaylist && resume.isNotEmpty()) {
+            if (browsing && resume.isNotEmpty()) {
                 item("resume-label") { SectionLabel("Pick up where you left off") }
                 item("resume") {
                     LazyRow(
@@ -235,12 +270,35 @@ fun HomeScreen(
             }
 
             val pinned = libraryVideos.filter { it.pinned }
-            if (showLibrary && !inPlaylist && pinned.isNotEmpty()) {
-                item("pinned-label") { SectionLabel("Pinned") }
-                items(pinned, key = { "p" + it.meta.id }) { v -> VideoRow(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
+            if (browsing && pinned.isNotEmpty()) {
+                item("pinned-label") {
+                    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Pinned", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { showPinned = true }) { Text("See all ${pinned.size}") }
+                    }
+                }
+                item("pinned") {
+                    LazyRow(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(pinned.take(12), key = { "pn" + it.meta.id }) { v -> PinnedCard(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
+                    }
+                }
+            }
+            if (showLibrary && !inPlaylist && showPinned) {
+                item("pinned-head") {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        TextButton(onClick = { showPinned = false }) { Text("‹ Library") }
+                        Text("Pinned · ${pinned.size}", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+                val shownPins = pinned.filter { it.matchesQuery(query) }
+                if (shownPins.isEmpty()) item("pinned-none") { Text("Nothing pinned matches.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                items(shownPins, key = { "pv" + it.meta.id }) { v -> VideoRow(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
             }
 
-            if (showLibrary && !inPlaylist) {
+            if (showLibrary && !inPlaylist && !showPinned) {
                 item("lib-label") {
                     SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} video${if (libraryVideos.size == 1) "" else "s"}")
                 }
@@ -251,12 +309,15 @@ fun HomeScreen(
                         filter = filter, onFilter = { filter = it },
                     )
                 }
-                val shown = libraryVideos.filter { filter.matches(it) }.sortedBy(settings.librarySort)
+                val everything = searching || filter.category != null || filter.tag != null
+                val shown = libraryVideos.filter { (everything || !it.pinned) && filter.matches(it) && it.matchesQuery(query) }.sortedBy(settings.librarySort)
                 val more: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
                 if (libraryVideos.isEmpty()) {
                     item("empty") { EmptyShelf() }
+                } else if (shown.isEmpty() && !searching && libraryVideos.all { it.pinned } && filter.category == null && filter.tag == null) {
+                    item("all-pinned") { Text("Everything here is pinned. Tap See all above.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 } else if (shown.isEmpty()) {
-                    item("none") { Text("Nothing matches this filter.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    item("none") { Text(if (searching) "Nothing matches \"$query\"." else "Nothing matches this filter.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 } else when (settings.libraryLayout) {
                     "grid" -> items(shown.chunked(2), key = { "g" + it.first().meta.id }) { pair -> VideoGridRow(pair, onOpen, more) }
                     "compact" -> items(shown, key = { "c" + it.meta.id }) { v -> VideoCompactRow(v, onOpen, more) }
@@ -501,5 +562,30 @@ private fun PlaylistCard(p: Playlist, videos: List<SavedVideo>, onClick: () -> U
         )
         Text(p.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
         Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A pinned video, small enough that several fit on the screen and you swipe for the rest. */
+@Composable
+private fun PinnedCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val source = remember { MutableInteractionSource() }
+    Column(
+        Modifier.width(160.dp).springPress(source).combinedClickable(source, null, onLongClick = {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
+        }, onClick = onClick),
+    ) {
+        Box {
+            AsyncImage(
+                model = v.meta.thumb, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
+            )
+            Icon(
+                Icons.Rounded.PushPin, null, Modifier.align(Alignment.TopStart).padding(8.dp).size(16.dp),
+                tint = androidx.compose.ui.graphics.Color.White,
+            )
+        }
+        Text(v.meta.title, Modifier.padding(top = 6.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+        Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -53,6 +53,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
     var error by remember(url) { mutableStateOf<String?>(null) }
     var more by remember(url) { mutableStateOf(false) }
     var loadingMore by remember(url) { mutableStateOf(false) }
+    var query by remember(url) { mutableStateOf("") }
 
     LaunchedEffect(url) {
         runCatching { ChannelSource.open(app.youtube, url) }
@@ -105,11 +106,19 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
                         )
                     }
                 }
-                items(videos, key = { "cv" + it.meta.id }) { v ->
+                item("search") { SearchField(query, { query = it }, "Search ${o.channel.name}") }
+                val shown = if (query.isBlank()) videos else videos.filter { matchesQuery(query, it.meta.title) }
+                if (query.isNotBlank() && more) item("searching") {
+                    Text(
+                        "Looking through the rest of the channel…", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                items(shown, key = { "cv" + it.meta.id }) { v ->
                     ChannelVideoRow(v, showChannel = false, saved = v.meta.id in inLibrary) { nav.openVideo(v.meta.id) }
                 }
-                if (videos.isEmpty()) item("none") {
-                    Text("No videos found on this channel.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (shown.isEmpty() && !more) item("none") {
+                    Text(if (query.isBlank()) "No videos found on this channel." else "No video matches \"$query\".", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (more) item("more") {
                     // Reaching the end of the list asks for the next page.
