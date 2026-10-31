@@ -73,7 +73,17 @@ object LibrarySearch {
                 at, score = total, videoId = v.meta.id,
             )
         }
-        if (tagsOnly) return out.sortedByDescending { it.score }.take(limit)
+        if (tagsOnly) {
+            // Highlights with that tag too.
+            for (v in videos) for (h in v.highlights) {
+                if (h.tags.isEmpty() || !tokens.all { t -> h.tags.any { g -> g.contains(t, true) } }) continue
+                out += Hit(
+                    HitKind.Highlight, v.meta.title, YouTube.formatTime(h.startSec) + " · " + h.tags.joinToString(" ") { "#$it" },
+                    snippet = h.text.ifBlank { h.note }.take(140), score = 80.0, videoId = v.meta.id, sec = h.startSec, color = h.color,
+                )
+            }
+            return out.sortedByDescending { it.score }.take(limit)
+        }
 
         // ---- highlights and notes
         val phrase = q.lowercase()
@@ -82,13 +92,14 @@ object LibrarySearch {
             val text = h.text
             val note = h.note
             if (text.isBlank() && note.isBlank()) continue
-            if (!tokens.all { text.contains(it, true) || note.contains(it, true) }) continue
+            if (!tokens.all { t -> text.contains(t, true) || note.contains(t, true) || h.tags.any { g -> g.contains(t.removePrefix("#"), true) } }) continue
             var s = 40.0
             if (text.lowercase().contains(phrase) || note.lowercase().contains(phrase)) s += 120.0
             if (note.isNotBlank() && tokens.any { note.contains(it, true) }) s += 12.0
             s += tokens.sumOf { tk -> minOf(count(text, tk) + count(note, tk), 4) * 3.0 }
             val from = if (text.isNotBlank() && tokens.any { text.contains(it, true) }) text else note
-            val snip = snippetAround(from, tokens.first { from.contains(it, true) })
+            // A match that is only in the tags has no place to mark in the words.
+            val snip = tokens.firstOrNull { from.contains(it, true) }?.let { snippetAround(from, it) }
             marks += Hit(
                 HitKind.Highlight, v.meta.title,
                 YouTube.formatTime(h.startSec) + if (note.isNotBlank() && from === text) " · " + note.take(80) else "",

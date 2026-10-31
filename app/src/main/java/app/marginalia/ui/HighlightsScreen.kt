@@ -95,17 +95,21 @@ fun HighlightsScreen(onBack: () -> Unit) {
     var byVideo by remember { mutableStateOf(false) }
     var onlyNotes by remember { mutableStateOf(false) }
     var colors by remember { mutableStateOf(setOf<Int>()) }
+    var tagSel by remember { mutableStateOf(setOf<String>()) }
 
     val all = remember(videos) {
         videos.flatMap { v -> v.highlights.map { Entry(v, it) } }.filter { it.h.text.isNotBlank() || it.h.note.isNotBlank() }
     }
     val tokens = remember(query) { query.trim().split(' ').filter { it.isNotEmpty() } }
-    val shown = remember(all, tokens, onlyNotes, colors) {
+    val tagCounts = remember(all) { all.flatMap { it.h.tags }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(12).map { it.key } }
+    val shown = remember(all, tokens, onlyNotes, colors, tagSel) {
         all.filter { e ->
             (colors.isEmpty() || e.h.color in colors) &&
+                (tagSel.isEmpty() || e.h.tags.any { t -> tagSel.any { it.equals(t, true) } }) &&
                 (!onlyNotes || e.h.note.isNotBlank()) &&
                 tokens.all { t ->
                     e.h.text.contains(t, true) || e.h.note.contains(t, true) ||
+                        e.h.tags.any { g -> g.contains(t.removePrefix("#"), true) } ||
                         e.video.meta.title.contains(t, true) || e.video.meta.author.contains(t, true)
                 }
         }
@@ -120,7 +124,7 @@ fun HighlightsScreen(onBack: () -> Unit) {
 
     // A new search or filter starts at the top.
     val list = rememberLazyListState()
-    LaunchedEffect(query, onlyNotes, colors, byVideo) { list.scrollToItem(0) }
+    LaunchedEffect(query, onlyNotes, colors, byVideo, tagSel) { list.scrollToItem(0) }
 
     fun openAt(e: Entry) {
         app.library.edit(e.video.meta.id) { it.copy(positionSec = e.h.startSec) }
@@ -172,6 +176,12 @@ fun HighlightsScreen(onBack: () -> Unit) {
                         leadingIcon = { Icon(Icons.Rounded.Notes, null, Modifier.size(18.dp)) },
                     )
                 }
+                items(tagCounts, key = { "t$it" }) { t ->
+                    FilterChip(
+                        selected = t in tagSel, onClick = { tagSel = if (t in tagSel) tagSel - t else tagSel + t },
+                        label = { Text("#$t") },
+                    )
+                }
                 items(HighlightColors.indices.toList(), key = { "c$it" }) { i ->
                     val on = i in colors
                     val c = Color(HighlightColors[i].ui)
@@ -195,8 +205,8 @@ fun HighlightsScreen(onBack: () -> Unit) {
                     Modifier.padding(horizontal = 28.dp, vertical = 32.dp),
                     style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
                 )
-                if (all.isNotEmpty() && (query.isNotBlank() || onlyNotes || colors.isNotEmpty())) TextButton(
-                    onClick = { query = ""; onlyNotes = false; colors = emptySet() }, modifier = Modifier.padding(horizontal = 16.dp),
+                if (all.isNotEmpty() && (query.isNotBlank() || onlyNotes || colors.isNotEmpty() || tagSel.isNotEmpty())) TextButton(
+                    onClick = { query = ""; onlyNotes = false; colors = emptySet(); tagSel = emptySet() }, modifier = Modifier.padding(horizontal = 16.dp),
                 ) { Text("Clear search and filters") }
             } else LazyColumn(
                 Modifier.weight(1f), state = list,
@@ -259,6 +269,11 @@ private fun HighlightCard(
                     style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = if (e.h.text.isNotBlank()) 8.dp else 0.dp, end = 12.dp),
                 )
+                if (e.h.tags.isNotEmpty()) Text(
+                    e.h.tags.joinToString("  ") { "#$it" },
+                    style = MaterialTheme.typography.labelMedium, color = scheme.primary,
+                    modifier = Modifier.padding(top = 8.dp, end = 12.dp),
+                )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         (if (showSource) e.video.meta.title + "  ·  " else "") + YouTube.formatTime(e.h.startSec),
@@ -281,9 +296,16 @@ private fun HighlightCard(
 
 /** [text] with every typed word marked, so you can see why it matched. */
 private fun found(text: String, tokens: List<String>, color: Color): AnnotatedString {
-    if (tokens.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
+        // [[Note links]] in your notes, in the accent colour.
+        var open = text.indexOf("[[")
+        while (open >= 0) {
+            val close = text.indexOf("]]", open + 2)
+            if (close < 0) break
+            addStyle(SpanStyle(color = color), open, close + 2)
+            open = text.indexOf("[[", close + 2)
+        }
         for (t in tokens) {
             var i = text.indexOf(t, 0, ignoreCase = true)
             while (i >= 0) {

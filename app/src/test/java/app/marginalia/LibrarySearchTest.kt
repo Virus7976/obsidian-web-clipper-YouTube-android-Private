@@ -109,3 +109,32 @@ class LibrarySearchTest {
         assertEquals(listOf("old", "new"), Reviews.ready(listOf(b, a), emptyMap(), 10 * day).map { it.highlight.id })
     }
 }
+
+class HighlightTagTest {
+    private val video = SavedVideo(VideoMeta("abc12345678", "A talk", "A speaker"))
+
+    @Test fun tagsGoAfterTheNoteAsObsidianTags() {
+        val h = Highlight("1", 83.0, 90.0, "words here", "see [[Memory palace]]", 0, tags = listOf("poem", "memorize"))
+        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.marginalia.data.AppSettings())
+        assertTrue(out, out.endsWith("see [[Memory palace]] #poem #memorize"))
+    }
+
+    @Test fun noTagsAddsNothing() {
+        val h = Highlight("1", 83.0, 90.0, "words here", "", 0)
+        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.marginalia.data.AppSettings())
+        assertFalse(out.contains("#"))
+    }
+
+    @Test fun aTimedNoteKeepsItsTags() {
+        val h = Highlight("1", 5.0, 5.0, "", "the drop", 0, tags = listOf("song"))
+        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.marginalia.data.AppSettings())
+        assertTrue(out, out.endsWith("the drop #song"))
+    }
+
+    @Test fun searchFindsAHighlightByItsTag() {
+        val v = video.copy(highlights = listOf(Highlight("1", 83.0, 90.0, "words here", "", 0, tags = listOf("poem"))))
+        val hits = LibrarySearch.search("#poem", listOf(v), emptyList(), emptyList())
+        assertTrue(hits.any { it.kind == HitKind.Highlight && it.sec == 83.0 })
+        assertTrue(LibrarySearch.search("poem", listOf(v), emptyList(), emptyList()).any { it.kind == HitKind.Highlight })
+    }
+}

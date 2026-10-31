@@ -37,14 +37,18 @@ object NoteBuilder {
         // A note with no highlighted words, such as one written while a song plays.
         if (h.text.isBlank()) {
             val note = h.note.replace(Regex("\\s*\\n\\s*"), " ").trim()
-            return "- [" + YouTube.formatTime(h.startSec) + "](" + timeLink(video.meta.id, h.startSec) + ")" + if (note.isEmpty()) "" else " $note"
+            return "- [" + YouTube.formatTime(h.startSec) + "](" + timeLink(video.meta.id, h.startSec) + ")" + (if (note.isEmpty()) "" else " $note") + tagText(h)
         }
         val body = settings.highlightFormat
             .replace("{text}", styled(h, settings))
             .replace("{time}", YouTube.formatTime(h.startSec))
             .replace("{link}", timeLink(video.meta.id, h.startSec))
-        return if (h.note.isBlank()) body else body + "\n\n" + h.note.trim()
+        return (if (h.note.isBlank()) body else body + "\n\n" + h.note.trim()) + tagText(h)
     }
+
+    /** The tags of one highlight as Obsidian tags, after a space. Empty when it has none. */
+    private fun tagText(h: app.marginalia.data.Highlight): String =
+        if (h.tags.isEmpty()) "" else " " + h.tags.joinToString(" ") { "#" + it }
 
     fun highlightsMarkdown(video: SavedVideo, settings: AppSettings): String =
         video.highlights.sortedBy { it.startSec }.joinToString("\n\n") { highlightEntry(video, it, settings) }

@@ -405,7 +405,7 @@ private fun FieldBlock(title: String, content: @Composable androidx.compose.foun
 
 /** A slim one-line text field. The outlined field is 56dp tall, which is too big inside a panel. */
 @Composable
-private fun PillField(
+internal fun PillField(
     value: String,
     onChange: (String) -> Unit,
     placeholder: String,

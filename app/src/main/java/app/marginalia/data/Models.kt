@@ -54,6 +54,8 @@ data class Highlight(
     val w1: Int = -1,
     /** When it was made, in milliseconds. 0 on highlights from before review mode. */
     val createdAt: Long = 0L,
+    /** Tags for this one highlight, without the #. They go into the note as #tags. */
+    val tags: List<String> = emptyList(),
 )
 
 /**

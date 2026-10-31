@@ -207,38 +207,32 @@ fun HomeScreen(
                 }
             }
 
-            item("tabs") {
+            if (visibleTabs.size > 1) item("tabs") {
                 FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     visibleTabs.forEach { id ->
                         androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
                     }
-                    // Not a tab: it opens the screen with every highlight in it.
-                    val highlightCount = videos.sumOf { v -> v.highlights.count { it.text.isNotBlank() || it.note.isNotBlank() } }
-                    androidx.compose.material3.AssistChip(
-                        onClick = nav.openHighlights,
-                        // Short on purpose, so it sits on the same row as the tabs.
-        label = { Text(if (highlightCount > 0) "$highlightCount" else "Highlights") },
-                        leadingIcon = { Icon(Icons.Rounded.Highlight, null, Modifier.size(18.dp)) },
-                    )
                 }
             }
 
             // Highlights that are ready to look at again.
-            if (tab == "library" && query.isBlank() && openPlaylist == null && page == null && dueCount > 0) item("review") {
+            // One card for everything about highlights: browse them, or go through the ones that are due.
+            val savedCount = videos.sumOf { v -> v.highlights.count { it.text.isNotBlank() || it.note.isNotBlank() } }
+            if (tab == "library" && query.isBlank() && openPlaylist == null && page == null && savedCount > 0) item("highlights") {
                 androidx.compose.material3.Surface(
-                    onClick = nav.openReview, shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.primaryContainer,
+                    onClick = nav.openHighlights, shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 ) {
-                    Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Highlight, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Row(Modifier.padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Highlight, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Review", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text(
-                                "$dueCount highlight${if (dueCount == 1) "" else "s"} to look at again",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
+                            Text("Highlights", style = MaterialTheme.typography.titleSmall)
+                            Text("$savedCount saved", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        if (dueCount > 0) androidx.compose.material3.FilledTonalButton(
+                            onClick = nav.openReview, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        ) { Text("Review $dueCount") }
                     }
                 }
             }

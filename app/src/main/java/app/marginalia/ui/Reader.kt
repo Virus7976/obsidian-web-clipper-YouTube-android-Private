@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -505,6 +507,11 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
 
         // Note bar for the highlight just made, or the one that was tapped.
         val editing = video.highlights.firstOrNull { it.id == editingId }
+        // Tags and links come from the vault you save to.
+        val noteVault = settings.linkedVault(settings.vault) ?: settings.vaultFolders.keys.firstOrNull()
+        val tagPool = app.library.videos.value.flatMap { v -> v.highlights.flatMap { it.tags } }
+            .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key } +
+            (noteVault?.let { app.vaults.indexes.value[it]?.tags?.keys }.orEmpty())
         AnimatedVisibility(
             visible = editing != null,
             modifier = Modifier.align(Alignment.BottomCenter).imePadding().padding(
@@ -519,6 +526,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 HighlightNoteBar(
                     h = h,
                     onNote = { text -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(note = text) else it }) } },
+                    tags = h.tags,
+                    onTags = { t -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(tags = t) else it }) } },
+                    vault = noteVault,
+                    suggestTags = tagPool,
                     onColor = { c ->
                         app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = c) else it }) }
                         app.settings.update { it.copy(highlightColor = c) } // the next highlight starts with this colour
@@ -840,6 +851,10 @@ private fun HighlightsSheet(video: SavedVideo, onDismiss: () -> Unit, onJump: (H
 private fun HighlightNoteBar(
     h: Highlight,
     onNote: (String) -> Unit,
+    tags: List<String>,
+    onTags: (List<String>) -> Unit,
+    vault: String?,
+    suggestTags: List<String>,
     onColor: (Int) -> Unit,
     onDelete: () -> Unit,
     onPlay: () -> Unit,
@@ -847,6 +862,16 @@ private fun HighlightNoteBar(
 ) {
     val scheme = MaterialTheme.colorScheme
     var text by remember(h.id) { mutableStateOf(h.note) }
+    var tagMode by remember(h.id) { mutableStateOf(false) }
+    var newTag by remember(h.id) { mutableStateOf("") }
+    var linking by remember(h.id) { mutableStateOf(false) }
+    // True when the picker was opened by typing [[, so the typed brackets are replaced and not doubled.
+    var linkTyped by remember(h.id) { mutableStateOf(false) }
+    fun addTag(raw: String) {
+        val t = raw.trim().removePrefix("#").replace(' ', '-')
+        if (t.isNotEmpty() && tags.none { it.equals(t, true) }) onTags(tags + t)
+        newTag = ""
+    }
     // save shortly after typing stops, and again when the bar goes away
     LaunchedEffect(text) { if (text != h.note) { kotlinx.coroutines.delay(450); onNote(text) } }
     Surface(
@@ -866,17 +891,41 @@ private fun HighlightNoteBar(
             }
             androidx.compose.material3.OutlinedTextField(
                 value = text,
-                onValueChange = { text = it },
+                onValueChange = { v ->
+                    // Typing [[ opens the note picker, like in Obsidian.
+                    if (vault != null && v.endsWith("[[") && !text.endsWith("[[")) { linkTyped = true; linking = true }
+                    text = v
+                },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Add a note") },
+                placeholder = { Text(if (vault != null) "Add a note. Type [[ to link a note" else "Add a note") },
                 minLines = 1,
                 maxLines = 4,
                 shape = RoundedCornerShape(18.dp),
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (tags.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                tags.forEach { t ->
+                    androidx.compose.material3.InputChip(
+                        selected = false, onClick = { onTags(tags - t) },
+                        label = { Text("#$t") }, trailingIcon = { Icon(Icons.Rounded.Close, "Remove $t", Modifier.size(16.dp)) },
+                    )
+                }
+            }
+            if (tagMode) {
+                PillField(
+                    newTag, { newTag = it }, "Add a tag", onDone = { addTag(newTag) },
+                    trailing = { if (newTag.isNotBlank()) IconButton(onClick = { addTag(newTag) }) { Icon(Icons.Rounded.Check, "Add tag") } },
+                )
+                val near = suggestTags.filter { s -> tags.none { it.equals(s, true) } && (newTag.isBlank() || s.contains(newTag.removePrefix("#"), true)) }.take(8)
+                if (near.isNotEmpty()) androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(near, key = { "nt$it" }) { s -> androidx.compose.material3.FilterChip(selected = false, onClick = { addTag(s) }, label = { Text("#$s") }) }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 HighlightColors.forEachIndexed { i, c ->
                     Box(
-                        Modifier.size(if (i == h.color) 32.dp else 26.dp)
+                        Modifier.size(if (i == h.color) 28.dp else 22.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
                             .background(Color(c.ui.toInt()))
                             .then(if (i == h.color) Modifier.border(2.dp, scheme.onSurface, androidx.compose.foundation.shape.CircleShape) else Modifier)
@@ -884,11 +933,28 @@ private fun HighlightNoteBar(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onPlay) { Icon(Icons.Rounded.PlayArrow, "Play from here") }
-                IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Remove highlight") }
+                IconButton(onClick = { tagMode = !tagMode }, Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Sell, "Tags", tint = if (tagMode || tags.isNotEmpty()) scheme.primary else scheme.onSurfaceVariant)
+                }
+                if (vault != null) IconButton(onClick = { linkTyped = false; linking = true }, Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Link, "Link a note", tint = scheme.onSurfaceVariant)
+                }
+                IconButton(onClick = onPlay, Modifier.size(40.dp)) { Icon(Icons.Rounded.PlayArrow, "Play from here") }
+                IconButton(onClick = onDelete, Modifier.size(40.dp)) { Icon(Icons.Rounded.Delete, "Remove highlight") }
             }
         }
     }
+
+    if (linking && vault != null) OmniSheet(
+        vault = vault, title = "Link a note",
+        kinds = setOf(app.marginalia.data.OmniKind.Note),
+        onPick = { item ->
+            val name = item.title
+            text = (if (linkTyped && text.endsWith("[[")) text.removeSuffix("[[") else text.trimEnd() + (if (text.isBlank()) "" else " ")) + "[[$name]]"
+            linking = false
+        },
+        onDismiss = { linking = false },
+    )
 }
 
 /** Search box for the transcript in front of you. Shows how many matches and steps between them. */

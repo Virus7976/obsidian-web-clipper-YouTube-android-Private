@@ -148,8 +148,7 @@ fun LazyListScope.feedTab(
 }
 
 /**
- * One video as a wide picture with the facts beside it. Pass [onOptions] and [onQueue] to get the
- * two buttons under the title.
+ * One video as a wide picture with the facts beside it. Pass [onOptions] for the three-dot button.
  */
 @Composable
 fun ChannelVideoRow(
@@ -197,26 +196,13 @@ fun ChannelVideoRow(
                     if (v.ago.isNotBlank()) Text(v.ago, maxLines = 1, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else if (v.ago.isNotBlank()) Text(v.ago, maxLines = 1, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (saved && onOptions == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (saved) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Icon(Icons.Rounded.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 Text("In your library", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
-            if (onOptions != null || onQueue != null) Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (onOptions != null) Pill(Icons.Rounded.Tune, "Options", onOptions)
-                if (onQueue != null) Pill(Icons.Rounded.QueueMusic, null, onQueue)
-                if (saved) Icon(Icons.Rounded.Check, "In your library", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-            }
         }
-    }
-}
-
-@Composable
-private fun Pill(icon: ImageVector, label: String?, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, label ?: "Add to queue", Modifier.size(18.dp))
-            if (label != null) Text(label, style = MaterialTheme.typography.labelLarge)
-        }
+        // One quiet three-dot button at the end, like every other list. Everything else is in its menu.
+        if (onOptions != null) MoreButton(onOptions)
     }
 }
 
