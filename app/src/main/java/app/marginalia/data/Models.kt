@@ -151,6 +151,8 @@ data class AppSettings(
     /** Home tabs that are shown: add, library. */    val homeTabs: List<String> = listOf("add", "library", "playlists", "queue"),
     val libraryLayout: String = "list", // list | grid | compact
     val librarySort: String = "recent", // recent | added | title | author | highlights
+    /** The library sort runs the other way. */
+    val librarySortReversed: Boolean = false,
     /** Bumped when new home tabs ship, so the tabs show up for people who changed the list. */
     val tabsVersion: Int = 0,
     /** Video ids waiting to play, in order. */

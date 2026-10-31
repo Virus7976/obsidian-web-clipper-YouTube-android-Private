@@ -213,7 +213,11 @@ fun HomeScreen(
             if (visibleTabs.size > 1) item("tabs") {
                 FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     visibleTabs.forEach { id ->
-                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
+                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = {
+                            if (tab != id) tab = id
+                            else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
+                            else scope.launch { listState.animateScrollToItem(0) }
+                        }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
                     }
                 }
             }
@@ -339,13 +343,14 @@ fun HomeScreen(
                 }
                 if (libraryVideos.isNotEmpty()) item("lib-controls") {
                     LibraryControls(
-                        libraryVideos, settings.librarySort,
-                        onSort = { s -> app.settings.update { it.copy(librarySort = s) } },
+                        libraryVideos, settings.librarySort, settings.librarySortReversed,
+                        // The sort that is on reverses. A new one starts the normal way round.
+                        onSort = { s -> app.settings.update { it.copy(librarySort = s, librarySortReversed = s == it.librarySort && !it.librarySortReversed) } },
                         filter = filter, onFilter = { filter = it },
                     )
                 }
                 val everything = searching || filter.category != null || filter.tag != null
-                val shown = libraryVideos.filter { (everything || !it.pinned) && filter.matches(it) && it.matchesQuery(query) }.sortedBy(settings.librarySort)
+                val shown = libraryVideos.filter { (everything || !it.pinned) && filter.matches(it) && it.matchesQuery(query) }.sortedBy(settings.librarySort, settings.librarySortReversed)
                 val more: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
                 if (libraryVideos.isEmpty()) {
                     item("empty") { EmptyShelf() }

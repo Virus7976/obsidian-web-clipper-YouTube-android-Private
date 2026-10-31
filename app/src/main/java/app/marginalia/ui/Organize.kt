@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.WatchLater
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Person
@@ -86,13 +88,13 @@ val LibrarySorts = listOf(
     "highlights" to "Most highlights",
 )
 
-fun List<SavedVideo>.sortedBy(sort: String): List<SavedVideo> = when (sort) {
+fun List<SavedVideo>.sortedBy(sort: String, reversed: Boolean = false): List<SavedVideo> = when (sort) {
     "title" -> sortedBy { it.meta.title.lowercase() }
     "author" -> sortedWith(compareBy({ it.meta.author.lowercase() }, { it.meta.title.lowercase() }))
     "highlights" -> sortedByDescending { it.highlights.size }
     "added" -> sortedByDescending { it.addedAt }
     else -> this
-}
+}.let { if (reversed) it.reversed() else it }
 
 val LibraryFilterSaver = androidx.compose.runtime.saveable.listSaver<LibraryFilter, String?>(
     { listOf(it.category, it.tag) }, { LibraryFilter(it[0], it[1]) },
@@ -109,6 +111,7 @@ data class LibraryFilter(val category: String? = null, val tag: String? = null) 
 fun LibraryControls(
     videos: List<SavedVideo>,
     sort: String,
+    reversed: Boolean,
     onSort: (String) -> Unit,
     filter: LibraryFilter,
     onFilter: (LibraryFilter) -> Unit,
@@ -125,11 +128,14 @@ fun LibraryControls(
             androidx.compose.foundation.layout.Box {
                 FilterChip(
                     selected = false, onClick = { menu = true },
-                    label = { Text("Sort: " + (LibrarySorts.firstOrNull { it.first == sort }?.second ?: "Recent")) },
+                    label = { Text("Sort: " + (LibrarySorts.firstOrNull { it.first == sort }?.second ?: "Recent") + if (reversed) ", reversed" else "") },
                 )
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     LibrarySorts.forEach { (id, label) ->
-                        DropdownMenuItem(text = { Text(label) }, onClick = { onSort(id); menu = false })
+                        DropdownMenuItem(
+                            text = { Text(label) }, onClick = { onSort(id); menu = false },
+                            trailingIcon = { if (id == sort) Icon(if (reversed) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward, "Tap to reverse", Modifier.size(18.dp)) },
+                        )
                     }
                 }
             }

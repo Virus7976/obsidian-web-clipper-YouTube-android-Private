@@ -76,6 +76,18 @@ class PlayerHost(
     val locked: StateFlow<Boolean> = _locked.asStateFlow()
     fun setLocked(on: Boolean) { _locked.value = on }
 
+    private val keyguard = app.getSystemService(android.app.KeyguardManager::class.java)
+    private val power = app.getSystemService(android.os.PowerManager::class.java)
+
+    /** True while the phone is locked. The lock button on the media card exists only then. */
+    val phoneLocked = MutableStateFlow(false)
+
+    /** The phone is open in your hand, so no touch protection is needed. */
+    fun phoneUnlocked() {
+        phoneLocked.value = false
+        _locked.value = false
+    }
+
     private val http = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(15_000)
@@ -163,6 +175,8 @@ class PlayerHost(
 
     private val poll = object : Runnable {
         override fun run() {
+            // The unlock broadcast did not always arrive on the test phone, so ask directly.
+            if (phoneLocked.value && power?.isInteractive == true && keyguard?.isKeyguardLocked == false) phoneUnlocked()
             val st = _state.value
             // While a source loads, or after every source failed, the player has no position. The last good one stays.
             if (st.videoId != null && !st.loading && st.error == null && exo.mediaItemCount > 0) {

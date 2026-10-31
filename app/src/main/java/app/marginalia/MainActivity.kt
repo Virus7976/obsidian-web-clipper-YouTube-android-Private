@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // The notification says this: open the app to unlock.
-        (application as MarginaliaApp).player.setLocked(false)
+        (application as MarginaliaApp).player.phoneUnlocked()
     }
 
     override fun onStop() {

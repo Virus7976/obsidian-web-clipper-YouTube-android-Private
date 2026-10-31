@@ -6,6 +6,7 @@ import app.marginalia.data.SavedVideo
 import app.marginalia.data.VideoMeta
 import app.marginalia.obsidian.BuiltNote
 import app.marginalia.obsidian.Updater
+import app.marginalia.ui.sortedBy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,6 +24,14 @@ class RefinementTest {
     }
 
     @Test fun anUnknownLengthKeepsThePlace() = assertEquals(120.0, video(120.0, 0).resumeSec, 0.0)
+
+    @Test fun tappingTheSameSortReversesTheList() {
+        val a = video(0.0, 0).copy(meta = VideoMeta("a", "Apple", "x"))
+        val b = video(0.0, 0).copy(meta = VideoMeta("b", "Banana", "x"))
+        val list = listOf(b, a)
+        assertEquals(listOf("Apple", "Banana"), list.sortedBy("title").map { it.meta.title })
+        assertEquals(listOf("Banana", "Apple"), list.sortedBy("title", reversed = true).map { it.meta.title })
+    }
 
     // ---------- adding to a note that already exists ----------
 

@@ -347,7 +347,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 Text(
                     video.meta.title,
-                    Modifier.weight(1f),
+                    Modifier.weight(1f).clickable(onClickLabel = "About this video") { showAbout = true },
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -767,8 +767,12 @@ private fun TransportRow(ps: State<PlayerState>, host: PlayerHost, canWatch: Boo
             MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 44.dp)
             IconButton(onClick = { host.skip(10.0) }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
             Spacer(Modifier.weight(1f))
+            // Tap the time to see what is left.
+            var showLeft by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+            val shownSec = if (showLeft) (ps.value.durationSec - ps.value.positionSec).coerceAtLeast(0.0) else ps.value.positionSec
             Text(
-                "${YouTube.formatTime(ps.value.positionSec)} / ${YouTube.formatTime(ps.value.durationSec)}",
+                (if (showLeft) "-" else "") + "${YouTube.formatTime(shownSec)} / ${YouTube.formatTime(ps.value.durationSec)}",
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable { showLeft = !showLeft }.padding(horizontal = 6.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

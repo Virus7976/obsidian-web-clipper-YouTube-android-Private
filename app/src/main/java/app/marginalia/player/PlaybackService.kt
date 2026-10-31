@@ -30,7 +30,8 @@ class PlaybackService : MediaSessionService() {
         override fun onReceive(context: android.content.Context, intent: Intent) {
             val app = application as MarginaliaApp
             // You unlocked the phone yourself, so the touch lock is no longer needed.
-            if (intent.action == Intent.ACTION_USER_PRESENT) { app.player.setLocked(false); return }
+            if (intent.action == Intent.ACTION_USER_PRESENT) { app.player.phoneUnlocked(); return }
+            app.player.phoneLocked.value = true
             if (app.settings.value.lockScreen && app.player.state.value.playing) {
                 LockScreenActivity.launch(this@PlaybackService)
             }
@@ -44,6 +45,7 @@ class PlaybackService : MediaSessionService() {
             androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         val app = application as MarginaliaApp
+        app.player.phoneLocked.value = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
         val highlight = SessionCommand(ACTION_HIGHLIGHT, Bundle.EMPTY)
         val back10 = SessionCommand(ACTION_BACK10, Bundle.EMPTY)
         val fwd10 = SessionCommand(ACTION_FWD10, Bundle.EMPTY)
@@ -51,7 +53,7 @@ class PlaybackService : MediaSessionService() {
 
         // Back 10 and forward 10 take the back and forward slots, where "previous" and "next" would be.
         // Highlight goes in the extra slot. Play, pause and the seek bar are drawn by Android itself.
-        fun buttons(locked: Boolean) = ImmutableList.of(
+        fun buttons(locked: Boolean, showLock: Boolean) = ImmutableList.builder<CommandButton>().add(
             // These are custom actions, the same kind as Highlight. Phone makers draw custom actions
             // on their media card, but they often skip the standard seek buttons.
             CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
@@ -70,17 +72,21 @@ class PlaybackService : MediaSessionService() {
                 .setSessionCommand(highlight)
                 .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
-            // Locking is one tap. Unlocking is not here on purpose: it is in the app, or when you unlock the phone.
-            CommandButton.Builder(CommandButton.ICON_UNDEFINED)
-                .setCustomIconResId(if (locked) R.drawable.ic_lock else R.drawable.ic_lock_open)
-                .setDisplayName(if (locked) "Locked. Open Marginalia to unlock" else "Lock the controls")
-                .setSessionCommand(lock)
-                .setSlots(CommandButton.SLOT_OVERFLOW)
-                .build(),
-        )
+        ).also {
+            // Touch protection is for a phone in a pocket, so the button shows only on the lock screen.
+            // Unlocking is not here on purpose: it happens when you unlock the phone or open the app.
+            if (showLock) it.add(
+                CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                    .setCustomIconResId(if (locked) R.drawable.ic_lock else R.drawable.ic_lock_open)
+                    .setDisplayName(if (locked) "Locked. Open Marginalia to unlock" else "Lock the controls")
+                    .setSessionCommand(lock)
+                    .setSlots(CommandButton.SLOT_OVERFLOW)
+                    .build(),
+            )
+        }.build()
 
         session = MediaSession.Builder(this, SkipPlayer(app.player.exo) { app.player.locked.value })
-            .setMediaButtonPreferences(buttons(app.player.locked.value))
+            .setMediaButtonPreferences(buttons(app.player.locked.value, app.player.phoneLocked.value))
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                     val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(highlight).add(back10).add(fwd10).add(lock).build()
@@ -110,8 +116,11 @@ class PlaybackService : MediaSessionService() {
                 }
             })
             .build()
-        // Swap the lock button between open and closed.
-        scope.launch { app.player.locked.collect { session?.setMediaButtonPreferences(buttons(it)) } }
+        // Swap the lock button between open and closed, and take it away once the phone is unlocked.
+        scope.launch {
+            kotlinx.coroutines.flow.combine(app.player.locked, app.player.phoneLocked) { locked, phone -> locked to phone }
+                .collect { (locked, phone) -> session?.setMediaButtonPreferences(buttons(locked, phone)) }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session

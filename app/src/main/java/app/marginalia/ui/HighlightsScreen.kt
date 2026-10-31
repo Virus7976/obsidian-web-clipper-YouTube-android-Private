@@ -95,6 +95,7 @@ fun HighlightsScreen(onBack: () -> Unit) {
     val textSet = androidx.compose.runtime.saveable.listSaver<Set<String>, String>({ it.toList() }, { it.toSet() })
     var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var byVideo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var oldest by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var onlyNotes by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var colors by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = intSet) { mutableStateOf(setOf<Int>()) }
     var tagSel by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = textSet) { mutableStateOf(setOf<String>()) }
@@ -116,17 +117,21 @@ fun HighlightsScreen(onBack: () -> Unit) {
                 }
         }
     }
-    val groups = remember(shown, byVideo) {
+    val groups = remember(shown, byVideo, oldest) {
         if (!byVideo) emptyList()
         else shown.groupBy { it.video.meta.id }.values
             .sortedByDescending { g -> g.maxOf { it.stamp } }
+            .let { if (oldest) it.reversed() else it }
             .map { g -> g.sortedBy { it.h.startSec } }
     }
-    val flat = remember(shown) { shown.sortedWith(compareByDescending<Entry> { it.stamp }.thenBy { it.h.startSec }) }
+    val flat = remember(shown, oldest) {
+        val byTime = compareBy<Entry> { it.stamp }
+        shown.sortedWith((if (oldest) byTime else byTime.reversed()).thenBy { it.h.startSec })
+    }
 
     // A new search or filter starts at the top.
     val list = rememberLazyListState()
-    OnChanged("$query|$onlyNotes|$colors|$byVideo|$tagSel") { list.scrollToItem(0) }
+    OnChanged("$query|$onlyNotes|$colors|$byVideo|$oldest|$tagSel") { list.scrollToItem(0) }
 
     fun openAt(e: Entry) {
         app.library.edit(e.video.meta.id) { it.copy(positionSec = e.h.startSec) }
@@ -170,8 +175,19 @@ fun HighlightsScreen(onBack: () -> Unit) {
 
             // How to read, then what to keep. One line, scrolls sideways.
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                item("n") { FilterChip(selected = !byVideo, onClick = { byVideo = false }, label = { Text("Newest") }) }
-                item("v") { FilterChip(selected = byVideo, onClick = { byVideo = true }, label = { Text("By video") }) }
+                // The chip that is on flips the order. The other one switches to it and keeps the order.
+                item("n") {
+                    FilterChip(
+                        selected = !byVideo, onClick = { if (byVideo) byVideo = false else oldest = !oldest },
+                        label = { Text(if (oldest) "Oldest" else "Newest") },
+                    )
+                }
+                item("v") {
+                    FilterChip(
+                        selected = byVideo, onClick = { if (byVideo) oldest = !oldest else byVideo = true },
+                        label = { Text(if (byVideo && oldest) "By video, oldest" else "By video") },
+                    )
+                }
                 item("notes") {
                     FilterChip(
                         selected = onlyNotes, onClick = { onlyNotes = !onlyNotes }, label = { Text("With notes") },
