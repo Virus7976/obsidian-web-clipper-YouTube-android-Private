@@ -371,6 +371,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 collapsed = collapsed, onExpand = { collapsed = false }, onBack = onBack,
                 searching = searching, onFind = { searching = !searching },
                 pinned = pinned, onPin = { pinned = !pinned; if (pinned) collapsed = false },
+                chapters = video.chapters,
                 menuOpen = menu, onMenu = { menu = it },
             ) {
                 DropdownMenuItem(
@@ -844,6 +845,9 @@ private fun HighlightNoteBar(
     var colorOpen by remember(h.id) { mutableStateOf(false) }
     var newTag by remember(h.id) { mutableStateOf("") }
     var linking by remember(h.id) { mutableStateOf(false) }
+    var noteFocus by remember(h.id) { mutableStateOf(false) }
+    // Playback stays paused for the whole note: the box, the tag entry and the link picker. Only leaving all of them lets it go on.
+    LaunchedEffect(noteFocus, tagMode, linking) { onTyping(noteFocus || tagMode || linking) }
     // True when the picker was opened by typing [[, so the typed brackets are replaced and not doubled.
     var linkTyped by remember(h.id) { mutableStateOf(false) }
     fun addTag(raw: String) {
@@ -882,7 +886,7 @@ private fun HighlightNoteBar(
                     if (vault != null && v.endsWith("[[") && !text.endsWith("[[")) { linkTyped = true; linking = true }
                     text = v
                 },
-                modifier = Modifier.fillMaxWidth().heightIn(max = fieldMax).onFocusChanged { onTyping(it.isFocused) },
+                modifier = Modifier.fillMaxWidth().heightIn(max = fieldMax).onFocusChanged { noteFocus = it.isFocused },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(scheme.primary),
                 minLines = 3,

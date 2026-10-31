@@ -73,6 +73,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.viewinterop.AndroidView
+import app.marginalia.data.Chapter
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -118,6 +134,7 @@ fun ReaderHeader(
     onFind: () -> Unit,
     pinned: Boolean,
     onPin: () -> Unit,
+    chapters: List<Chapter>,
     menuOpen: Boolean,
     onMenu: (Boolean) -> Unit,
     menuItems: @Composable ColumnScope.() -> Unit,
@@ -204,7 +221,7 @@ fun ReaderHeader(
                         // Always there, so the menu never leaves while you use it.
                         PictureTopButtons(ps, host, onBack, onFind, pinned, onPin, menuOpen, onMenu, menuItems, onPoke = { pokes++ })
                         AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300)), modifier = Modifier.fillMaxSize()) {
-                            PictureCentre(ps, host, onPoke = { pokes++ })
+                            PictureCentre(ps, host, chapters, onPoke = { pokes++ })
                         }
                     }
                 }
@@ -213,10 +230,10 @@ fun ReaderHeader(
             val ctlAlpha by animateFloatAsState(if (picture) 0f else 1f, tween(220), label = "ctlAlpha")
             if (ctlAlpha > 0f && t < 1f) Column(
                 Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (ctlAlpha * (1f - t * 2f)).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
-            ) { PlayerControls(ps, host) }
+            ) { PlayerControls(ps, host, chapters) }
         }
         // One bar at a time: while the buttons are on the picture they have the seek bar, so this line waits.
-        if ((picture && !(shown || !playing)) || t > 0f) SmallProgress(ps, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
+        if ((picture && !(shown || !playing)) || t > 0f) SmallProgress(ps, chapters, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
     }
 }
 
@@ -259,7 +276,7 @@ private fun PictureTopButtons(
 
 /** Play, skip and the seek bar. They fade out by themselves while the video plays. */
 @Composable
-private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, onPoke: () -> Unit) {
+private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onPoke: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { host.skip(-10.0); onPoke() }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds", Modifier.size(32.dp), tint = Color.White) }
@@ -274,7 +291,7 @@ private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, onPoke: () -
             SlimSeekBar(
                 ps.value.positionSec, ps.value.durationSec,
                 onSeek = { host.seekTo(it); onPoke() }, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                loading = ps.value.waiting, onLight = true,
+                loading = ps.value.waiting, onLight = true, chapters = chapters, onTouch = onPoke,
             )
             Text(YouTube.formatTime(ps.value.durationSec), style = MaterialTheme.typography.labelMedium, color = Color.White)
         }
@@ -292,14 +309,14 @@ private fun OverlayButton(description: String, onClick: () -> Unit, content: @Co
 
 /** The controls under a slim top row, for listening: the seek bar with its times, then the buttons, centred. */
 @Composable
-private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost) {
+private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>) {
     val scheme = MaterialTheme.colorScheme
     var showLeft by rememberSaveable { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(YouTube.formatTime(ps.value.positionSec), Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         SlimSeekBar(
             ps.value.positionSec, ps.value.durationSec, onSeek = { host.seekTo(it) },
-            modifier = Modifier.weight(1f).padding(horizontal = 4.dp), loading = ps.value.waiting,
+            modifier = Modifier.weight(1f).padding(horizontal = 4.dp), loading = ps.value.waiting, chapters = chapters,
         )
         // Tap the time to see what is left.
         Text(
@@ -329,17 +346,50 @@ private fun SmallTime(ps: State<PlayerState>, modifier: Modifier) {
     )
 }
 
-/** A thin line along the bottom edge of the player: how far along the video is. */
+/** A thin line along the bottom edge of the player: how far along the video is, with a small gap at each chapter. */
 @Composable
-private fun SmallProgress(ps: State<PlayerState>, modifier: Modifier, thick: androidx.compose.ui.unit.Dp = 2.dp) {
+private fun SmallProgress(ps: State<PlayerState>, chapters: List<Chapter>, modifier: Modifier, thick: androidx.compose.ui.unit.Dp = 2.dp) {
     val s = ps.value
     val frac = if (s.durationSec > 0) (s.positionSec / s.durationSec).toFloat().coerceIn(0f, 1f) else 0f
-    Box(modifier.fillMaxWidth().height(thick).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
-        Box(Modifier.fillMaxWidth(frac).height(thick).background(MaterialTheme.colorScheme.primary))
+    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val fill = MaterialTheme.colorScheme.primary
+    Canvas(modifier.fillMaxWidth().height(thick)) {
+        drawChapterTrack(chapterCuts(chapters, s.durationSec), frac, thick.toPx(), 0f, track, fill)
     }
 }
 
-/** One slim seek bar, the same line that shows under the picture. Tap or drag to move. */
+/** Where each chapter starts, as a share of the video. The first is always 0. */
+private fun chapterCuts(chapters: List<Chapter>, durationSec: Double): List<Float> {
+    if (durationSec <= 0) return listOf(0f)
+    val cuts = chapters.map { (it.start / durationSec).toFloat() }.filter { it > 0.002f && it < 0.998f }.distinct().sorted()
+    return listOf(0f) + cuts
+}
+
+/** One bar cut into chapters with a small gap between them. Played part is filled. */
+private fun DrawScope.drawChapterTrack(cuts: List<Float>, frac: Float, thick: Float, centreY: Float, track: Color, fill: Color) {
+    val w = size.width
+    val y = if (centreY > 0f) centreY - thick / 2f else 0f
+    val gap = if (cuts.size > 1) 2.dp.toPx() else 0f
+    val round = androidx.compose.ui.geometry.CornerRadius(thick / 2f)
+    cuts.forEachIndexed { i, a ->
+        val b = cuts.getOrNull(i + 1) ?: 1f
+        val x0 = a * w + if (i > 0) gap / 2f else 0f
+        val x1 = b * w - if (i < cuts.lastIndex) gap / 2f else 0f
+        if (x1 <= x0) return@forEachIndexed
+        drawRoundRect(track, Offset(x0, y), Size(x1 - x0, thick), round)
+        val end = (frac * w).coerceIn(x0, x1)
+        if (end > x0) drawRoundRect(fill, Offset(x0, y), Size(end - x0, thick), round)
+    }
+}
+
+/** The chapter that holds this time. Before the first chapter it is the first. */
+private fun chapterAt(chapters: List<Chapter>, sec: Double): Chapter? =
+    chapters.lastOrNull { it.start <= sec } ?: chapters.firstOrNull()
+
+/**
+ * One slim seek bar. It is cut into chapters with a small gap between them, like YouTube.
+ * Tap or drag to move. While you drag, a small card above the bar names the chapter and the time.
+ */
 @Composable
 fun SlimSeekBar(
     positionSec: Double,
@@ -348,33 +398,72 @@ fun SlimSeekBar(
     modifier: Modifier = Modifier,
     loading: Boolean = false,
     onLight: Boolean = false,
+    chapters: List<Chapter> = emptyList(),
+    onTouch: () -> Unit = {},
 ) {
     var width by remember { mutableIntStateOf(1) }
     var dragging by remember { mutableStateOf<Float?>(null) }
     val frac = if (durationSec > 0) (positionSec / durationSec).toFloat().coerceIn(0f, 1f) else 0f
     val shown = dragging ?: frac
     val scheme = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
     val pulse by rememberInfiniteTransition(label = "wait").animateFloat(
         0.35f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "waitAlpha",
     )
+    val thick by animateDpAsState(if (dragging != null) 6.dp else 3.dp, spring(1f, 600f), label = "thick")
+    val cuts = remember(chapters, durationSec) { chapterCuts(chapters, durationSec) }
     val track = if (onLight) Color.White.copy(alpha = 0.3f) else scheme.outlineVariant.copy(alpha = 0.6f)
+    val fill = scheme.primary
+    // A small tick each time the finger crosses into another chapter.
+    LaunchedEffect(dragging != null) {
+        if (dragging == null) return@LaunchedEffect
+        var last = -1
+        androidx.compose.runtime.snapshotFlow { cuts.count { c -> c <= (dragging ?: 0f) } }.collect { n ->
+            if (last != -1 && n != last) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            last = n
+        }
+    }
     Box(
         modifier.fillMaxWidth().height(32.dp)
             .onSizeChanged { width = it.width.coerceAtLeast(1) }
-            .pointerInput(durationSec) { detectTapGestures { o -> if (durationSec > 0) onSeek(o.x / width * durationSec) } }
+            .pointerInput(durationSec) { detectTapGestures { o -> onTouch(); if (durationSec > 0) onSeek(o.x / width * durationSec) } }
             .pointerInput(durationSec) {
                 detectHorizontalDragGestures(
-                    onDragStart = { o -> dragging = (o.x / width).coerceIn(0f, 1f) },
+                    onDragStart = { o -> onTouch(); dragging = (o.x / width).coerceIn(0f, 1f) },
                     onDragEnd = { dragging?.let { if (durationSec > 0) onSeek(it * durationSec) }; dragging = null },
                     onDragCancel = { dragging = null },
-                    onHorizontalDrag = { change, _ -> dragging = (change.position.x / width).coerceIn(0f, 1f) },
+                    onHorizontalDrag = { change, _ -> onTouch(); dragging = (change.position.x / width).coerceIn(0f, 1f) },
                 )
             },
         contentAlignment = Alignment.CenterStart,
     ) {
-        Box(Modifier.fillMaxWidth().height(3.dp).background(track)) {
-            Box(Modifier.fillMaxWidth(shown).height(3.dp).graphicsLayer { alpha = if (loading) pulse else 1f }.background(scheme.primary))
+        Canvas(Modifier.fillMaxWidth().height(32.dp).graphicsLayer { alpha = if (loading) pulse else 1f }) {
+            drawChapterTrack(cuts, shown, thick.toPx(), size.height / 2f, track, fill)
+            if (dragging != null) drawCircle(fill, 7.dp.toPx(), Offset(shown * size.width, size.height / 2f))
         }
-        if (dragging != null) Box(Modifier.offset { androidx.compose.ui.unit.IntOffset((shown * width).toInt() - 6.dp.roundToPx(), 0) }.size(12.dp).clip(CircleShape).background(scheme.primary))
+        dragging?.let { d ->
+            val sec = d * durationSec
+            val chapter = chapterAt(chapters, sec)
+            Popup(popupPositionProvider = remember(d) { SeekCardPosition(d) }) {
+                Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceContainerHighest, tonalElevation = 6.dp, shadowElevation = 6.dp) {
+                    Column(Modifier.widthIn(max = 240.dp).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (chapter != null) Text(
+                            chapter.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelLarge, color = scheme.onSurface,
+                        )
+                        Text(YouTube.formatTime(sec), style = MaterialTheme.typography.labelMedium, color = scheme.primary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Puts the seek card above the finger, kept inside the bar's own width. */
+private class SeekCardPosition(private val frac: Float) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val x = anchorBounds.left + (frac * anchorBounds.width).toInt() - popupContentSize.width / 2
+        val clamped = x.coerceIn(anchorBounds.left, (anchorBounds.right - popupContentSize.width).coerceAtLeast(anchorBounds.left))
+        return IntOffset(clamped, (anchorBounds.top - popupContentSize.height - 12).coerceAtLeast(0))
     }
 }
