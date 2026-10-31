@@ -34,6 +34,7 @@ class Nav(
     val openChannel: (String) -> Unit,
     val openChannelOfVideo: (String) -> Unit,
     val openReview: () -> Unit = {},
+    val openHighlights: () -> Unit = {},
 )
 
 val LocalNav = staticCompositionLocalOf<Nav> { error("Nav not provided") }
@@ -44,6 +45,7 @@ sealed interface Screen {
     data class Channel(val url: String) : Screen
     data object Settings : Screen
     data object Review : Screen
+    data object Highlights : Screen
     data class Template(val id: String) : Screen
 }
 
@@ -79,6 +81,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                     },
                     openChannel = { url -> pushChannel(url) },
                     openReview = { if (stack.last() != Screen.Review) stack.add(Screen.Review) },
+                    openHighlights = { if (stack.last() != Screen.Highlights) stack.add(Screen.Highlights) },
                     openChannelOfVideo = { id ->
                         scope.launch {
                             val url = runCatching { ChannelSource.channelOfVideo(app.youtube, id) }.getOrNull()
@@ -172,6 +175,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                         )
                         is Screen.Template -> TemplateEditorScreen(screen.id, onBack = { stack.removeAt(stack.lastIndex) })
                         Screen.Review -> ReviewScreen(onBack = { stack.removeAt(stack.lastIndex) })
+                        Screen.Highlights -> HighlightsScreen(onBack = { stack.removeAt(stack.lastIndex) })
                     }
                 }
             }
@@ -186,5 +190,6 @@ private fun depth(s: Screen) = when (s) {
     is Screen.Channel -> 1
     Screen.Settings -> 1
     Screen.Review -> 1
+    Screen.Highlights -> 1
     is Screen.Template -> 2
 }

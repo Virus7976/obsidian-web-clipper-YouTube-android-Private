@@ -207,11 +207,18 @@ fun HomeScreen(
                 }
             }
 
-            if (visibleTabs.size > 1) item("tabs") {
+            item("tabs") {
                 FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     visibleTabs.forEach { id ->
                         androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
                     }
+                    // Not a tab: it opens the screen with every highlight in it.
+                    val highlightCount = videos.sumOf { v -> v.highlights.count { it.text.isNotBlank() || it.note.isNotBlank() } }
+                    androidx.compose.material3.AssistChip(
+                        onClick = nav.openHighlights,
+                        label = { Text("Highlights" + if (highlightCount > 0) " · $highlightCount" else "") },
+                        leadingIcon = { Icon(Icons.Rounded.Highlight, null, Modifier.size(18.dp)) },
+                    )
                 }
             }
 
