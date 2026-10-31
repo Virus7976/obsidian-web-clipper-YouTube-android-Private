@@ -111,6 +111,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -335,9 +336,12 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     LaunchedEffect(editingId) {
         val id = editingId ?: return@LaunchedEffect
         val w = video.highlights.firstOrNull { it.id == id }?.w0 ?: return@LaunchedEffect
-        delay(400)
-        val tv = tview ?: return@LaunchedEffect
-        if (w >= 0 && !tv.isVisible(w)) { tv.scrollToWord(w); tv.pauseFollow() }
+        // The bar and the keyboard take a moment to settle, so look again until the marked words are clear of them.
+        repeat(3) {
+            delay(380)
+            val tv = tview ?: return@LaunchedEffect
+            if (w >= 0 && !tv.isComfortable(w)) { tv.scrollToWord(w); tv.pauseFollow() }
+        }
     }
     // Playback waits only while you are in the note box, not every time a highlight is made.
     var pausedForNote by remember { mutableStateOf(false) }
@@ -583,8 +587,16 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         val bottomGap by androidx.compose.animation.core.animateDpAsState(
             if (!headerHidden && !immersive && editingId == null) 76.dp else 16.dp, spring(1f, 500f), label = "syncGap",
         )
+        // It only shows when the spoken word is out of sight. Scrolled away, but still looking at it, there is nothing to go back to.
+        var wordOffScreen by remember { mutableStateOf(true) }
+        LaunchedEffect(away) {
+            while (away) {
+                wordOffScreen = tview?.isVisible(activeWord)?.not() ?: true
+                delay(250)
+            }
+        }
         AnimatedVisibility(
-            visible = away && settings.autoScroll && editingId == null,
+            visible = away && wordOffScreen && settings.autoScroll && editingId == null,
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = bottomGap),
             enter = fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
             exit = fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f),
@@ -842,6 +854,10 @@ private fun HighlightNoteBar(
     androidx.compose.runtime.key(h.id) { SaveWhenIdle(text, h.note, onNote) }
     val tone = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
     val circle = androidx.compose.foundation.shape.CircleShape
+    // Like a notes app: roomy by default. With the keyboard up the box still leaves a few lines of the text above it.
+    val screenDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+    val imeUp = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    val fieldMax = (screenDp * (if (imeUp) 0.2f else 0.36f)).dp
 
     Column(
         Modifier.fillMaxWidth().background(scheme.surfaceContainer)
@@ -866,11 +882,11 @@ private fun HighlightNoteBar(
                     if (vault != null && v.endsWith("[[") && !text.endsWith("[[")) { linkTyped = true; linking = true }
                     text = v
                 },
-                modifier = Modifier.fillMaxWidth().onFocusChanged { onTyping(it.isFocused) },
+                modifier = Modifier.fillMaxWidth().heightIn(max = fieldMax).onFocusChanged { onTyping(it.isFocused) },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(scheme.primary),
-                minLines = 1,
-                maxLines = 3,
+                minLines = 3,
+                maxLines = 12,
                 decorationBox = { inner ->
                     Box(Modifier.fillMaxWidth().background(scheme.surfaceContainerHighest, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
                         if (text.isEmpty()) Text(

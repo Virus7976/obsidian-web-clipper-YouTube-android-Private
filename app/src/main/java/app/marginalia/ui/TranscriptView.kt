@@ -200,6 +200,12 @@ class TranscriptView(context: Context) : ScrollView(context) {
         return y >= scrollY - dp(20) && y <= scrollY + height - dp(60)
     }
 
+    /** True when the word sits in the upper part of the view, clear of whatever is docked under the text. */
+    fun isComfortable(word: Int): Boolean {
+        val y = yOfWord(word) ?: return true
+        return y >= scrollY && y <= scrollY + height * 0.55f
+    }
+
     /** Scroll back to the spoken word with an eased glide, and start following again. */
     fun resync(word: Int) {
         setPaused(false)
