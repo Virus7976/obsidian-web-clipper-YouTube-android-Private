@@ -22,6 +22,13 @@ object Highlights {
         return out
     }
 
+    /** The words of each highlight that has a note, with its colour. */
+    fun notedRuns(words: List<Word>, highlights: List<Highlight>): List<Pair<IntRange, Int>> =
+        highlights.filter { it.note.isNotBlank() }.mapNotNull { h ->
+            val run = if (h.w0 >= 0) h.w0..minOf(h.w1, words.lastIndex) else wordsOf(h, words)
+            run?.let { it to h.color }
+        }
+
     private fun wordsOf(h: Highlight, words: List<Word>): IntRange? {
         val idx = words.indices.filter { covers(h, it, words[it]) }
         return if (idx.isEmpty()) null else idx.first()..idx.last()

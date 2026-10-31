@@ -34,7 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Forward10
-import androidx.compose.material.icons.rounded.Highlight
+import androidx.compose.material.icons.rounded.BorderColor
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MyLocation
@@ -344,7 +344,7 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 Toast.makeText(ctx, QuickHighlight.run(app), Toast.LENGTH_SHORT).show()
-                            }) { Icon(Icons.Rounded.Highlight, "Highlight this sentence", tint = accent) }
+                            }) { Icon(Icons.Rounded.BorderColor, "Highlight this sentence", tint = accent) }
                         } else Spacer(Modifier.size(48.dp))
                     }
                 }

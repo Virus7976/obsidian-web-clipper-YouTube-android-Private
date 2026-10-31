@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
@@ -236,9 +235,8 @@ private fun HitRow(h: Hit, onClick: () -> Unit) {
             )
             HitKind.Highlight -> {
                 val c = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
-                Box(Modifier.size(38.dp).clip(CircleShape).background(c.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Highlight, null, tint = c, modifier = Modifier.size(20.dp))
-                }
+                // The colour you marked it in, the same bar as on the highlights page.
+                Box(Modifier.padding(top = 3.dp).size(width = 4.dp, height = 34.dp).clip(RoundedCornerShape(2.dp)).background(c))
             }
             HitKind.Playlist -> Box(Modifier.size(38.dp).clip(CircleShape).background(scheme.tertiaryContainer), contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.QueueMusic, null, tint = scheme.onTertiaryContainer, modifier = Modifier.size(20.dp))

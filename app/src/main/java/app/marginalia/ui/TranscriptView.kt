@@ -16,13 +16,10 @@ import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextPaint
-import android.text.style.BackgroundColorSpan
-import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
-import android.text.style.UpdateAppearance
 import android.util.TypedValue
 import android.view.ActionMode
 import android.view.GestureDetector
@@ -54,11 +51,127 @@ private class HiddenSpan : ReplacementSpan() {
     override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {}
 }
 
-/** Paints the word being spoken. Added last, so it sits on top of any highlight colour. */
-private class ActiveWordSpan(private val bg: Int, private val fg: Int) : CharacterStyle(), UpdateAppearance {
-    override fun updateDrawState(tp: TextPaint) {
-        tp.bgColor = bg
-        tp.color = fg
+/** A run of text with a colour behind it. Search matches and highlights are both these. */
+private class Mark(val start: Int, val end: Int, val color: Int)
+
+/**
+ * The text of the transcript. Marks are drawn here and not with text spans, for two reasons. A span fills the
+ * full line height, so a highlight touches the line above it. And a span changes the text, which costs a
+ * redraw of the whole block several times a second for the spoken word.
+ */
+private class PageText(context: Context) : TextView(context) {
+    private val ink = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dp = resources.displayMetrics.density
+    private var built: android.text.Layout? = null
+    private var builtHeight = -1
+    private var rects: List<Pair<android.graphics.RectF, Int>> = emptyList()
+    private var ticks: List<Pair<android.graphics.RectF, Int>> = emptyList()
+
+    /** The spoken word, moving from where it was to where it is. */
+    private var spoken: android.graphics.RectF? = null
+    private var spokenWas: android.graphics.RectF? = null
+    private var spokenMove = 1f
+    private var spokenColor = 0
+    private var spokenChars: IntRange? = null
+    private val mover = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 150
+        interpolator = android.view.animation.DecelerateInterpolator()
+        addUpdateListener { spokenMove = it.animatedValue as Float; invalidate() }
+    }
+
+    var highlights: List<Mark> = emptyList()
+        set(v) { field = v; refresh() }
+    var matches: List<Mark> = emptyList()
+        set(v) { field = v; refresh() }
+
+    /** Words with a note on them. A tick in the margin shows there is something to read. */
+    var noted: List<Mark> = emptyList()
+        set(v) { field = v; refresh() }
+
+    fun refresh() {
+        built = null
+        invalidate()
+    }
+
+    fun setSpoken(chars: IntRange?, color: Int) {
+        spokenColor = color
+        spokenChars = chars
+        val l = layout
+        val next = if (chars == null || l == null) null else lineRects(l, chars.first, chars.last + 1).firstOrNull()
+        val was = spoken
+        spoken = next
+        mover.cancel()
+        // Along a line it glides. To a new line it jumps, because a slide would cross the text.
+        if (next != null && was != null && was.top == next.top && was != next) {
+            spokenWas = was
+            spokenMove = 0f
+            mover.start()
+        } else {
+            spokenWas = null
+            spokenMove = 1f
+            invalidate()
+        }
+    }
+
+    /** The tight box around the letters on each line of a run, not the full line height. */
+    private fun lineRects(l: android.text.Layout, start: Int, end: Int): List<android.graphics.RectF> {
+        val out = ArrayList<android.graphics.RectF>()
+        val size = textSize
+        for (line in l.getLineForOffset(start)..l.getLineForOffset((end - 1).coerceAtLeast(start))) {
+            val visibleEnd = l.getLineVisibleEnd(line)
+            val a = maxOf(start, l.getLineStart(line))
+            val b = minOf(end, visibleEnd)
+            if (b <= a) continue
+            val x0 = l.getPrimaryHorizontal(a)
+            val x1 = if (b >= visibleEnd) l.getLineRight(line) else l.getPrimaryHorizontal(b)
+            if (x1 <= x0) continue
+            val base = l.getLineBaseline(line).toFloat()
+            out += android.graphics.RectF(x0 - 2 * dp, base - size * 0.84f, x1 + 2 * dp, base + size * 0.3f)
+        }
+        return out
+    }
+
+    private fun rebuild(l: android.text.Layout) {
+        built = l
+        builtHeight = l.height
+        rects = (highlights + matches).flatMap { m -> lineRects(l, m.start, m.end).map { it to m.color } }
+        ticks = noted.mapNotNull { m ->
+            val all = lineRects(l, m.start, m.end)
+            if (all.isEmpty()) null else android.graphics.RectF(0f, all.first().top, 0f, all.last().bottom) to m.color
+        }
+        spokenChars?.let { c -> spoken = lineRects(l, c.first, c.last + 1).firstOrNull() }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val l = layout
+        if (l != null) {
+            if (l !== built || l.height != builtHeight) rebuild(l)
+            val left = totalPaddingLeft.toFloat()
+            val top = totalPaddingTop.toFloat()
+            val r = 3.5f * dp
+            ticks.forEach { (t, color) ->
+                ink.color = color
+                val x = width - paddingRight + 7 * dp
+                canvas.drawRoundRect(x, t.top + top, x + 3 * dp, t.bottom + top, 1.5f * dp, 1.5f * dp, ink)
+            }
+            canvas.save()
+            canvas.translate(left, top)
+            rects.forEach { (rect, color) ->
+                ink.color = color
+                canvas.drawRoundRect(rect, r, r, ink)
+            }
+            spoken?.let { to ->
+                val from = spokenWas
+                ink.color = spokenColor
+                if (from == null || spokenMove >= 1f) canvas.drawRoundRect(to, r, r, ink)
+                else canvas.drawRoundRect(
+                    from.left + (to.left - from.left) * spokenMove, to.top,
+                    from.right + (to.right - from.right) * spokenMove, to.bottom, r, r, ink,
+                )
+            }
+            canvas.restore()
+        }
+        super.onDraw(canvas)
     }
 }
 
@@ -68,11 +181,9 @@ private class ActiveWordSpan(private val bg: Int, private val fg: Int) : Charact
  */
 @SuppressLint("ClickableViewAccessibility")
 class TranscriptView(context: Context) : ScrollView(context) {
-    private val tv = TextView(context)
+    private val tv = PageText(context)
     private var doc: TranscriptDoc? = null
     private var style: ReaderStyle? = null
-    private var activeSpan: ActiveWordSpan? = null
-    private val highlightSpans = ArrayList<Any>()
     private var lastTouch = 0L
     private var colors: IntArray = IntArray(0)
 
@@ -94,6 +205,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
     init {
         isFillViewport = true
         overScrollMode = OVER_SCROLL_NEVER
+        // Text fades out at the edges of the page, so no line is ever cut in half against a bar.
+        isVerticalFadingEdgeEnabled = true
+        setFadingEdgeLength(dp(26))
         tv.setTextIsSelectable(true)
         tv.customSelectionActionModeCallback = selectionCallback()
         tv.setPadding(dp(18), dp(10), dp(18), dp(160))
@@ -144,11 +258,10 @@ class TranscriptView(context: Context) : ScrollView(context) {
             )
             tv.highlightColor = (s.accent and 0x00FFFFFF) or 0x55000000
             tv.setLinkTextColor(s.accent)
-            highlightSpans.clear()
-            searchSpans.clear()
+            tv.matches = emptyList()
             matches = emptyList()
             current = -1
-            activeSpan = null
+            tv.refresh()
             applySidePadding(width)
             post { scrollTo(0, keepY) }
             if (colors.isNotEmpty()) applyHighlights(colors)
@@ -215,20 +328,22 @@ class TranscriptView(context: Context) : ScrollView(context) {
 
     // ---------- find in this video ----------
 
-    private val searchSpans = ArrayList<Any>()
     private var matches: List<IntRange> = emptyList()
     private var current = -1
 
     /** While true, follow-along does not scroll, so it does not fight the search. */
     var searching = false
 
+    private fun drawMatches() {
+        tv.matches = matches.mapIndexed { i, r -> Mark(r.first, r.last + 1, if (i == current) MATCH_NOW else MATCH) }
+    }
+
     /** Marks every match of [query] in this transcript. Returns how many there are and jumps to the first. */
     fun search(query: String): Int {
         clearSearch()
-        val sp = tv.text as? Spannable ?: return 0
+        val text = tv.text?.toString() ?: return 0
         val q = query.trim()
         if (q.length < 2) return 0
-        val text = sp.toString()
         val found = ArrayList<IntRange>()
         var i = text.indexOf(q, 0, ignoreCase = true)
         while (i >= 0 && found.size < 500) {
@@ -236,33 +351,17 @@ class TranscriptView(context: Context) : ScrollView(context) {
             i = text.indexOf(q, i + q.length, ignoreCase = true)
         }
         matches = found
-        found.forEach { r ->
-            val span = android.text.style.BackgroundColorSpan(0x66FFD54F)
-            sp.setSpan(span, r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            searchSpans += span
-        }
         if (found.isNotEmpty()) goToMatch(0)
         return found.size
     }
 
     /** Jumps to match [i], wrapping around. Returns the match number now shown, or -1 when there are none. */
     fun goToMatch(i: Int): Int {
-        val sp = tv.text as? Spannable ?: return -1
         if (matches.isEmpty()) return -1
         val idx = ((i % matches.size) + matches.size) % matches.size
-        if (current in searchSpans.indices) {
-            val r = matches[current]
-            sp.removeSpan(searchSpans[current])
-            val soft = android.text.style.BackgroundColorSpan(0x66FFD54F)
-            sp.setSpan(soft, r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            searchSpans[current] = soft
-        }
-        val r = matches[idx]
-        sp.removeSpan(searchSpans[idx])
-        val strong = android.text.style.BackgroundColorSpan(0xCCFF9800.toInt())
-        sp.setSpan(strong, r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        searchSpans[idx] = strong
         current = idx
+        drawMatches()
+        val r = matches[idx]
         tv.layout?.let { l ->
             val y = l.getLineTop(l.getLineForOffset(r.first)) + tv.paddingTop
             glideTo((y - height * 0.3f).toInt().coerceAtLeast(0))
@@ -271,11 +370,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
     }
 
     fun clearSearch() {
-        val sp = tv.text as? Spannable
-        searchSpans.forEach { sp?.removeSpan(it) }
-        searchSpans.clear()
         matches = emptyList()
         current = -1
+        tv.matches = emptyList()
     }
 
     private var glide: android.animation.ObjectAnimator? = null
@@ -310,9 +407,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
         colors = byWord
         val d = doc ?: return
         val s = style ?: return
-        val sp = tv.text as? Spannable ?: return
-        highlightSpans.forEach { sp.removeSpan(it) }
-        highlightSpans.clear()
+        val runs = ArrayList<Mark>()
         var i = 0
         while (i < byWord.size && i < d.words.size) {
             val c = byWord[i]
@@ -321,22 +416,31 @@ class TranscriptView(context: Context) : ScrollView(context) {
                 continue
             }
             var j = i
-            while (j + 1 < byWord.size && j + 1 < d.words.size && byWord[j + 1] == c) j++
-            val ui = HighlightColors[c.coerceIn(HighlightColors.indices)].ui.toInt()
-            val bg = (ui and 0x00FFFFFF) or ((s.highlightAlpha * 255).toInt() shl 24)
-            val span = BackgroundColorSpan(bg)
-            sp.setSpan(span, d.words[i].charStart, d.words[j].charEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            highlightSpans += span
+            // A run stops at the end of a paragraph, so the time stamp on the next one stays clean.
+            while (j + 1 < byWord.size && j + 1 < d.words.size && byWord[j + 1] == c && !breakBetween(d, j)) j++
+            runs += Mark(d.words[i].charStart, d.words[j].charEnd, tint(c, s))
             i = j + 1
         }
-        // keep the spoken word on top
-        activeSpan?.let { a ->
-            val st = sp.getSpanStart(a)
-            val en = sp.getSpanEnd(a)
-            if (st >= 0) {
-                sp.removeSpan(a)
-                sp.setSpan(a, st, en, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
+        tv.highlights = runs
+    }
+
+    private fun breakBetween(d: TranscriptDoc, word: Int): Boolean {
+        val nl = d.text.indexOf('\n', d.words[word].charEnd)
+        return nl in 0 until d.words[word + 1].charStart
+    }
+
+    private fun tint(index: Int, s: ReaderStyle): Int {
+        val ui = HighlightColors[index.coerceIn(HighlightColors.indices)].ui.toInt()
+        return (ui and 0x00FFFFFF) or ((s.highlightAlpha * 255).toInt() shl 24)
+    }
+
+    /** Each entry is a run of words with a note, and the colour of that highlight. */
+    fun applyNotes(runs: List<Pair<IntRange, Int>>) {
+        val d = doc ?: return
+        tv.noted = runs.mapNotNull { (w, c) ->
+            val a = d.words.getOrNull(w.first) ?: return@mapNotNull null
+            val b = d.words.getOrNull(w.last) ?: return@mapNotNull null
+            Mark(a.charStart, b.charEnd, HighlightColors[c.coerceIn(HighlightColors.indices)].ui.toInt())
         }
     }
 
@@ -344,15 +448,8 @@ class TranscriptView(context: Context) : ScrollView(context) {
         val d = doc ?: return
         val s = style ?: return
         activeIdx = word
-        val sp = tv.text as? Spannable ?: return
-        activeSpan?.let { sp.removeSpan(it) }
-        activeSpan = null
-        if (word in d.words.indices) {
-            val bg = (s.accent and 0x00FFFFFF) or 0x66000000
-            val a = ActiveWordSpan(bg, s.textColor)
-            sp.setSpan(a, d.words[word].charStart, d.words[word].charEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            activeSpan = a
-        }
+        val w = d.words.getOrNull(word)
+        tv.setSpoken(w?.let { it.charStart until it.charEnd }, (s.accent and 0x00FFFFFF) or 0x66000000)
     }
 
     /** Scroll to keep [word] in view. Backs off while the reader is touching or selecting. */
@@ -420,7 +517,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
             menu.add(Menu.NONE, ID_SENTENCE, 1, "Sentence").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             menu.add(Menu.NONE, ID_PARAGRAPH, 2, "Paragraph").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             menu.add(Menu.NONE, ID_COPY, 3, "Copy")
-            menu.add(Menu.NONE, ID_ERASE, 4, "Remove highlight")
+            // Only when there is a highlight here to take off.
+            val here = doc?.wordsInSelection(tv.selectionStart.coerceAtLeast(0), tv.selectionEnd.coerceAtLeast(0))
+            if (here != null && here.any { colors.getOrElse(it) { -1 } >= 0 }) menu.add(Menu.NONE, ID_ERASE, 4, "Remove highlight")
             return true
         }
 
@@ -500,6 +599,8 @@ class TranscriptView(context: Context) : ScrollView(context) {
         const val ID_COPY = 201
         const val ID_SENTENCE = 202
         const val ID_PARAGRAPH = 203
+        const val MATCH = 0x66FFD54F
+        const val MATCH_NOW = 0xCCFF9800.toInt()
     }
 }
 

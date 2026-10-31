@@ -40,7 +40,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Highlight
+import androidx.compose.material.icons.rounded.BorderColor
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Lock
@@ -122,7 +122,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
     val menu = listOf(
         SettingsEntry("look", "Look", "Theme, colours, home layout", Icons.Rounded.Palette),
         SettingsEntry("reading", "Reading", "Font, text size, the player", Icons.Rounded.MenuBook),
-        SettingsEntry("highlights", "Highlights", "How words are marked and saved", Icons.Rounded.Highlight),
+        SettingsEntry("highlights", "Highlights", "How words are marked and saved", Icons.Rounded.BorderColor),
         SettingsEntry("obsidian", "Obsidian", "Vaults, templates, what a clip adds", Icons.Rounded.Description),
         SettingsEntry("review", "Review", "Come back to old highlights", androidx.compose.material.icons.Icons.Rounded.Notifications),
         SettingsEntry("playback", "Playback and captions", "Autoplay, background, muting", Icons.Rounded.PlayCircle),

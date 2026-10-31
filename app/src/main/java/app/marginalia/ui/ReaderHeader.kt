@@ -35,6 +35,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
@@ -83,6 +85,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.widthIn
@@ -135,6 +139,9 @@ fun ReaderHeader(
     pinned: Boolean,
     onPin: () -> Unit,
     chapters: List<Chapter>,
+    onJump: (Double) -> Unit,
+    full: Boolean,
+    onFull: () -> Unit,
     menuOpen: Boolean,
     onMenu: (Boolean) -> Unit,
     menuItems: @Composable ColumnScope.() -> Unit,
@@ -150,17 +157,23 @@ fun ReaderHeader(
     var shown by remember { mutableStateOf(true) }
     var pokes by remember { mutableIntStateOf(0) }
     LaunchedEffect(collapsed) { if (!collapsed) shown = true }
-    LaunchedEffect(shown, pokes, playing) { if (shown && playing) { delay(3500); shown = false } }
+    LaunchedEffect(shown, pokes, playing, menuOpen) { if (shown && playing && !menuOpen) { delay(3500); shown = false } }
+    // Double tap a side of the picture to skip, with a short sign of which way it went.
+    var skipWay by remember { mutableIntStateOf(1) }
+    var skips by remember { mutableIntStateOf(0) }
+    var skipSign by remember { mutableStateOf(false) }
+    LaunchedEffect(skips) { if (skips > 0) { skipSign = true; delay(500); skipSign = false } }
 
-    BoxWithConstraints(Modifier.fillMaxWidth().background(scheme.background).clipToBounds()) {
+    BoxWithConstraints(Modifier.fillMaxWidth().background(if (full) Color.Black else scheme.background).clipToBounds()) {
         val width = maxWidth
+        val room = maxHeight
         val screen = LocalConfiguration.current.screenHeightDp.dp
         // In landscape a full width picture would fill the screen, so it stops at 40 percent.
-        val fullHeight = min(width * 9f / 16f, screen * 0.4f)
+        val fullHeight = if (full) room else min(width * 9f / 16f, screen * 0.4f)
         val videoHeight by animateDpAsState(if (picture) fullHeight else 0.dp, spring(1f, 450f), label = "picture")
         val openTop = 0.dp
         // The 3dp under the picture is the thin progress line, so you can see how much is left with the buttons hidden.
-        val openTarget = if (picture) fullHeight + 3.dp else TopRow + Controls
+        val openTarget = if (full) room else if (picture) fullHeight + 3.dp else TopRow + Controls
         val open by animateDpAsState(openTarget, spring(1f, 450f), label = "open")
         val tap = remember { MutableInteractionSource() }
 
@@ -207,21 +220,40 @@ fun ReaderHeader(
                 ) else if (t > 0f) AsyncImage(video.meta.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 if (picture && waiting) LoadingIndicator()
                 Box(
-                    Modifier.fillMaxSize().clickable(
-                        remember { MutableInteractionSource() }, null,
-                        onClickLabel = if (collapsed) "Show the player" else "Show the buttons",
-                    ) { if (collapsed) onExpand() else shown = !shown },
-                )
-                if (picture && t < 0.5f) {
-                    val on = shown || !playing
-                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - t * 2f }) {
-                        AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
-                            Box(Modifier.fillMaxSize().background(Color(0x55000000)).clickable(remember { MutableInteractionSource() }, null, onClickLabel = "Hide the buttons") { shown = false })
+                    Modifier.fillMaxSize()
+                        .pointerInput(collapsed) {
+                            detectTapGestures(
+                                onTap = { if (collapsed) onExpand() else shown = !shown },
+                                // Folded, a tap must answer at once, so there is no wait for a second tap.
+                                onDoubleTap = if (collapsed) null else { o ->
+                                    skipWay = if (o.x < size.width / 2f) -1 else 1
+                                    host.skip(skipWay * 10.0)
+                                    skips++
+                                    pokes++
+                                },
+                            )
                         }
-                        // Always there, so the menu never leaves while you use it.
-                        PictureTopButtons(ps, host, onBack, onFind, pinned, onPin, menuOpen, onMenu, menuItems, onPoke = { pokes++ })
+                        .semantics { onClick(if (collapsed) "Show the player" else "Show the buttons") { if (collapsed) onExpand() else shown = !shown; true } },
+                )
+                // The buttons need the whole picture. While it grows or folds they stay away, or they pile up in a thin strip.
+                val grown = if (fullHeight > 0.dp) (videoHeight / fullHeight) else 0f
+                if (picture && t < 0.5f && grown > 0.7f) {
+                    val on = shown || !playing
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = (1f - t * 2f) * ((grown - 0.7f) / 0.3f).coerceIn(0f, 1f) }) {
+                        AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
+                            Box(Modifier.fillMaxSize().background(Color(0x55000000)))
+                        }
+                        PictureTopButtons(ps, host, onBack, on, full, pinned, onPin, menuOpen, onMenu, menuItems, onPoke = { pokes++ })
                         AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300)), modifier = Modifier.fillMaxSize()) {
-                            PictureCentre(ps, host, chapters, onPoke = { pokes++ })
+                            PictureCentre(ps, host, chapters, onJump, full, onFull, onPoke = { pokes++ })
+                        }
+                        AnimatedVisibility(
+                            visible = skipSign, enter = fadeIn(tween(80)), exit = fadeOut(tween(250)),
+                            modifier = Modifier.align(if (skipWay < 0) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 40.dp),
+                        ) {
+                            Box(Modifier.size(64.dp).clip(CircleShape).background(Color(0x66000000)), contentAlignment = Alignment.Center) {
+                                Icon(if (skipWay < 0) Icons.Rounded.Replay10 else Icons.Rounded.Forward10, null, Modifier.size(34.dp), tint = Color.White)
+                            }
                         }
                     }
                 }
@@ -230,20 +262,24 @@ fun ReaderHeader(
             val ctlAlpha by animateFloatAsState(if (picture) 0f else 1f, tween(220), label = "ctlAlpha")
             if (ctlAlpha > 0f && t < 1f) Column(
                 Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (ctlAlpha * (1f - t * 2f)).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
-            ) { PlayerControls(ps, host, chapters) }
+            ) { PlayerControls(ps, host, chapters, onJump) }
         }
         // One bar at a time: while the buttons are on the picture they have the seek bar, so this line waits.
         if ((picture && !(shown || !playing)) || t > 0f) SmallProgress(ps, chapters, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
     }
 }
 
-/** Back and the small choices, along the top of the picture. They stay while the rest hides. */
+/**
+ * Along the top of the picture. Back and More never leave: they are how you get out, and an open menu must not
+ * vanish under your finger. The small choices come and go with the other buttons, so a playing video stays clean.
+ */
 @Composable
 private fun PictureTopButtons(
     ps: State<PlayerState>,
     host: PlayerHost,
     onBack: () -> Unit,
-    onFind: () -> Unit,
+    on: Boolean,
+    full: Boolean,
     pinned: Boolean,
     onPin: () -> Unit,
     menuOpen: Boolean,
@@ -255,19 +291,22 @@ private fun PictureTopButtons(
         Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
-        OverlayButton("Back", onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, Modifier.size(22.dp), tint = Color.White) }
+        OverlayButton(if (full) "Leave full screen" else "Back", onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, Modifier.size(22.dp), tint = Color.White) }
         Spacer(Modifier.weight(1f))
-        OverlayButton("Speed", { host.setSpeed(nextSpeed(ps.value.speed)); onPoke() }) {
-            Text(speedLabel(ps.value.speed), style = MaterialTheme.typography.labelLarge, color = Color.White)
+        AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OverlayButton("Speed", { host.setSpeed(nextSpeed(ps.value.speed)); onPoke() }) {
+                    Text(speedLabel(ps.value.speed), style = MaterialTheme.typography.labelLarge, color = Color.White)
+                }
+                if (!full) OverlayButton(if (pinned) "Let the video fold when you scroll" else "Keep the video big when you scroll", { onPin(); onPoke() }) {
+                    Icon(if (pinned) Icons.Rounded.PushPin else Icons.Outlined.PushPin, null, Modifier.size(22.dp), tint = if (pinned) MaterialTheme.colorScheme.primary else Color.White)
+                }
+                if (!full && ps.value.canWatch) OverlayButton("Hide the video", { host.setVideo(false) }) {
+                    Icon(Icons.Rounded.Headphones, null, Modifier.size(22.dp), tint = Color.White)
+                }
+            }
         }
-        OverlayButton(if (pinned) "Let the video fold when you scroll" else "Keep the video big when you scroll", onPin) {
-            Icon(if (pinned) Icons.Rounded.PushPin else Icons.Outlined.PushPin, null, Modifier.size(22.dp), tint = if (pinned) MaterialTheme.colorScheme.primary else Color.White)
-        }
-        if (ps.value.canWatch) OverlayButton("Hide the video", { host.setVideo(false) }) {
-            Icon(Icons.Rounded.Headphones, null, Modifier.size(22.dp), tint = Color.White)
-        }
-        OverlayButton("Find in this video", { onFind() }) { Icon(Icons.Rounded.Search, null, Modifier.size(22.dp), tint = Color.White) }
-        Box {
+        if (!full) Box {
             OverlayButton("More", { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, null, Modifier.size(22.dp), tint = Color.White) }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenu(false) }, content = menuItems)
         }
@@ -276,7 +315,7 @@ private fun PictureTopButtons(
 
 /** Play, skip and the seek bar. They fade out by themselves while the video plays. */
 @Composable
-private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onPoke: () -> Unit) {
+private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onJump: (Double) -> Unit, full: Boolean, onFull: () -> Unit, onPoke: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { host.skip(-10.0); onPoke() }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds", Modifier.size(32.dp), tint = Color.White) }
@@ -284,16 +323,19 @@ private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, chapters: Li
             IconButton(onClick = { host.skip(10.0); onPoke() }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds", Modifier.size(32.dp), tint = Color.White) }
         }
         Row(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(YouTube.formatTime(ps.value.positionSec), style = MaterialTheme.typography.labelMedium, color = Color.White)
             SlimSeekBar(
                 ps.value.positionSec, ps.value.durationSec,
-                onSeek = { host.seekTo(it); onPoke() }, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                onSeek = { onJump(it); onPoke() }, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 loading = ps.value.waiting, onLight = true, chapters = chapters, onTouch = onPoke,
             )
             Text(YouTube.formatTime(ps.value.durationSec), style = MaterialTheme.typography.labelMedium, color = Color.White)
+            IconButton(onClick = onFull, Modifier.size(36.dp)) {
+                Icon(if (full) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, if (full) "Leave full screen" else "Watch full screen", Modifier.size(22.dp), tint = Color.White)
+            }
         }
     }
 }
@@ -309,13 +351,13 @@ private fun OverlayButton(description: String, onClick: () -> Unit, content: @Co
 
 /** The controls under a slim top row, for listening: the seek bar with its times, then the buttons, centred. */
 @Composable
-private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>) {
+private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onJump: (Double) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     var showLeft by rememberSaveable { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(YouTube.formatTime(ps.value.positionSec), Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         SlimSeekBar(
-            ps.value.positionSec, ps.value.durationSec, onSeek = { host.seekTo(it) },
+            ps.value.positionSec, ps.value.durationSec, onSeek = onJump,
             modifier = Modifier.weight(1f).padding(horizontal = 4.dp), loading = ps.value.waiting, chapters = chapters,
         )
         // Tap the time to see what is left.

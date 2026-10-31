@@ -11,6 +11,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,7 +44,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Highlight
+import androidx.compose.material.icons.rounded.BorderColor
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.PushPin
@@ -186,52 +187,57 @@ fun HomeScreen(
                 bottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 120.dp,
             ),
         ) {
+            // The tabs are the title, so the top of the screen is one row and it tells you where you are.
             item("head") {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier.size(30.dp).clip(MaterialShapes.Cookie6Sided.toShape()).background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center,
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (visibleTabs.size > 1) Row(
+                        Modifier.weight(1f).horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Rounded.PlayArrow, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text("Marginalia", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.weight(1f))
-                    FilledTonalButton(onClick = { addInitial = null; addOpen = true }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add")
-                    }
+                        visibleTabs.forEach { id ->
+                            HomeTab(HomeTabs.getValue(id), tab == id, if (id == "queue") queue.size else 0) {
+                                if (tab != id) tab = id
+                                else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
+                                else scope.launch { listState.animateScrollToItem(0) }
+                            }
+                        }
+                    } else Text("Marginalia", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                    androidx.compose.material3.FilledTonalIconButton(onClick = { addInitial = null; addOpen = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.Add, "Add a video") }
                     IconButton(onClick = { searchOpen = true }) { Icon(Icons.Rounded.Search, "Search everything") }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
             }
 
-            if (visibleTabs.size > 1) item("tabs") {
-                FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    visibleTabs.forEach { id ->
-                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = {
-                            if (tab != id) tab = id
-                            else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
-                            else scope.launch { listState.animateScrollToItem(0) }
-                        }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
+            val libraryVideos = videos.filter { it.playlistId.isEmpty() }
+            val inPlaylist = showLibrary && openPlaylist != null && playlists.any { it.id == openPlaylist }
+            val searching = query.isNotBlank()
+            val browsing = showLibrary && !inPlaylist && !searching && page == null
+            // What is playing now is in the bar at the bottom already.
+            val resumeAll = libraryVideos.filter { it.positionSec > 5 && it.resumeSec > 0.0 && it.meta.id != nowId }
+            val pinned = libraryVideos.filter { it.pinned }
+            val onMoreVideo: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
+            val rowPad = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
+
+            // First the thing you most likely came back for.
+            if (browsing && resumeAll.isNotEmpty()) {
+                item("resume-label") { SectionHeader("Pick up where you left off", resumeAll.size) { page = "resume" } }
+                item("resume-next") { ContinueCard(resumeAll.first(), onMoreVideo) { onOpen(resumeAll.first().meta.id) } }
+                if (resumeAll.size > 1) item("resume") {
+                    LazyRow(Modifier.padding(top = 8.dp), contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(resumeAll.drop(1).take(12), key = { "r" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, showProgress = true) { onOpen(v.meta.id) } }
                     }
                 }
             }
 
-            // Highlights that are ready to look at again.
             // One card for everything about highlights: browse them, or go through the ones that are due.
             val savedCount = videos.sumOf { v -> v.highlights.count { it.text.isNotBlank() || it.note.isNotBlank() } }
-            if (tab == "library" && query.isBlank() && openPlaylist == null && page == null && savedCount > 0) item("highlights") {
+            if (browsing && savedCount > 0) item("highlights") {
                 androidx.compose.material3.Surface(
                     onClick = nav.openHighlights, shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 4.dp),
                 ) {
                     Row(Modifier.padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Highlight, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.BorderColor, null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Highlights", style = MaterialTheme.typography.titleSmall)
@@ -244,14 +250,24 @@ fun HomeScreen(
                 }
             }
 
-            item("search") {
+            // The search icon covers everything you saved. A box here is only for a long list of this one kind.
+            val listSize = when {
+                showFeed -> feed.items.size
+                showQueue -> queue.size
+                inPlaylist -> playlists.firstOrNull { it.id == openPlaylist }?.videoIds?.size ?: 0
+                page == "playlists" -> playlists.size
+                page == "resume" -> resumeAll.size
+                page == "pinned" -> pinned.size
+                else -> 0
+            }
+            if (listSize >= 8 || query.isNotEmpty()) item("search") {
                 SearchField(
                     query, { query = it },
                     when {
                         showFeed -> "Search the feed"
                         showQueue -> "Search the queue"
                         openPlaylist != null -> "Search this playlist"
-                        else -> "Search your library"
+                        else -> "Search this list"
                     },
                 )
             }
@@ -277,40 +293,28 @@ fun HomeScreen(
                 onMore = { actionsInPlaylist = false; actionsFor = it },
             )
 
-            val libraryVideos = videos.filter { it.playlistId.isEmpty() }
-            val inPlaylist = showLibrary && openPlaylist != null && playlists.any { it.id == openPlaylist }
             if (inPlaylist) playlistsTab(
                 playlists = playlists, videos = if (query.isBlank()) videos else videos.filter { it.matchesQuery(query) }, openId = openPlaylist,
                 onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen,
                 onMore = { actionsInPlaylist = true; actionsFor = it },
             )
-            val searching = query.isNotBlank()
-            val browsing = showLibrary && !inPlaylist && !searching && page == null
-            val resumeAll = libraryVideos.filter { it.positionSec > 5 && it.resumeSec > 0.0 }
-            val pinned = libraryVideos.filter { it.pinned }
-            val onMoreVideo: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
-            val rowPad = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
+            // The card above already shows this video, so it is not repeated here.
+            val pinnedRow = pinned.filter { it.meta.id != resumeAll.firstOrNull()?.meta?.id }
+            if (browsing && pinnedRow.isNotEmpty()) {
+                item("pinned-label") { SectionHeader("Pinned", pinned.size) { page = "pinned" } }
+                // One video in a sideways row leaves half the screen empty, so it gets a whole line.
+                if (pinnedRow.size == 1) item("pinned") { VideoRow(pinnedRow.first(), onMoreVideo) { onOpen(pinnedRow.first().meta.id) } }
+                else item("pinned") {
+                    LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(pinnedRow.take(12), key = { "pn" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, pinned = true) { onOpen(v.meta.id) } }
+                    }
+                }
+            }
             if (browsing && playlists.isNotEmpty()) {
                 item("pl-label") { SectionHeader("Playlists", playlists.size, always = true) { page = "playlists" } }
                 item("pl-row") {
                     LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(playlists.take(12), key = { "pc" + it.id }) { p -> PlaylistCard(p, videos) { openPlaylist = p.id } }
-                    }
-                }
-            }
-            if (browsing && resumeAll.isNotEmpty()) {
-                item("resume-label") { SectionHeader("Pick up where you left off", resumeAll.size) { page = "resume" } }
-                item("resume") {
-                    LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(resumeAll.take(12), key = { "r" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, showProgress = true) { onOpen(v.meta.id) } }
-                    }
-                }
-            }
-            if (browsing && pinned.isNotEmpty()) {
-                item("pinned-label") { SectionHeader("Pinned", pinned.size) { page = "pinned" } }
-                item("pinned") {
-                    LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(pinned.take(12), key = { "pn" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, pinned = true) { onOpen(v.meta.id) } }
                     }
                 }
             }
@@ -339,7 +343,7 @@ fun HomeScreen(
 
             if (showLibrary && !inPlaylist && page == null) {
                 item("lib-label") {
-                    SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} video${if (libraryVideos.size == 1) "" else "s"}")
+                    SectionLabel("Videos", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} video${if (libraryVideos.size == 1) "" else "s"}")
                 }
                 if (libraryVideos.isNotEmpty()) item("lib-controls") {
                     LibraryControls(
@@ -402,39 +406,42 @@ private fun NowPlayingBar(modifier: Modifier, onOpen: (String) -> Unit) {
         enter = expandVertically(spring(0.6f, 380f)) + fadeIn(),
         exit = shrinkVertically() + fadeOut(),
     ) {
+        // Same family as the cards, so it reads as part of the app. The accent stays on the one button that matters.
         Surface(
             onClick = { nowId?.let(onOpen) },
             modifier = Modifier
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .fillMaxWidth(),
-            shape = RoundedCornerShape(36.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
             shadowElevation = 8.dp,
         ) {
             val frac = if (player.durationSec > 0) (player.positionSec / player.durationSec).toFloat().coerceIn(0f, 1f) else 0f
-            val track = MaterialTheme.colorScheme.onPrimaryContainer
+            val track = MaterialTheme.colorScheme.outlineVariant
+            val fill = MaterialTheme.colorScheme.primary
             Row(
                 Modifier.drawBehind {
                     // A thin line along the bottom edge shows how far along the video is.
                     val h = 3.dp.toPx()
-                    drawRect(track.copy(alpha = 0.12f), Offset(0f, size.height - h), Size(size.width, h))
-                    drawRect(track.copy(alpha = 0.55f), Offset(0f, size.height - h), Size(size.width * frac, h))
-                }.padding(8.dp),
+                    drawRect(track.copy(alpha = 0.5f), Offset(0f, size.height - h), Size(size.width, h))
+                    drawRect(fill, Offset(0f, size.height - h), Size(size.width * frac, h))
+                }.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // A video is a wide picture. A circle would cut most of it away.
                 AsyncImage(
                     model = nowId?.let { "https://i.ytimg.com/vi/$it/mqdefault.jpg" },
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(52.dp).clip(CircleShape),
+                    modifier = Modifier.width(72.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(12.dp)),
                 )
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(player.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(player.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
+                    Text(player.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                    Text(player.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                MorphingPlayButton(playing = player.playing, onClick = { app.player.toggle() }, size = 52.dp)
-                IconButton(onClick = { app.player.stop() }) { Icon(Icons.Rounded.Close, "Stop", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                MorphingPlayButton(playing = player.playing, onClick = { app.player.toggle() }, size = 44.dp)
+                IconButton(onClick = { app.player.stop() }) { Icon(Icons.Rounded.Close, "Stop", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }
@@ -492,7 +499,7 @@ private fun PreviewCard(
                         selected = highlighting,
                         onClick = { onHighlighting(!highlighting) },
                         label = { Text("Highlighting") },
-                        leadingIcon = { Icon(Icons.Rounded.Highlight, null, Modifier.size(18.dp)) },
+                        leadingIcon = { Icon(Icons.Rounded.BorderColor, null, Modifier.size(18.dp)) },
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -536,7 +543,7 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
             Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (v.highlights.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Rounded.Highlight, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
+                    Icon(Icons.Rounded.BorderColor, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
                     Text("${v.highlights.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                 }
                 if (v.pinned) Icon(Icons.Rounded.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
@@ -559,7 +566,7 @@ private fun EmptyShelf() {
     ) {
         Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Tap Add to paste a link or search YouTube. You can also share a video here from the YouTube app.",
+            "Tap + to paste a link or search YouTube. You can also share a video here from the YouTube app.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -608,13 +615,65 @@ private fun VideoCard(v: SavedVideo, onMore: (String) -> Unit, pinned: Boolean =
     }
 }
 
+/** One tab in the top row. It is a word, not a chip: a chip says "filter", and this changes the whole page. */
+@Composable
+private fun HomeTab(label: String, selected: Boolean, count: Int, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val tone by androidx.compose.animation.animateColorAsState(if (selected) scheme.onSurface else scheme.onSurfaceVariant.copy(alpha = 0.7f), label = "tab")
+    Row(
+        Modifier.height(48.dp).clickable(remember { MutableInteractionSource() }, null, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp), color = tone, maxLines = 1)
+        if (count > 0) Text(count.toString(), Modifier.padding(start = 3.dp, bottom = 8.dp), style = MaterialTheme.typography.labelSmall, color = scheme.primary)
+    }
+}
+
+/** The video you most likely came back for, across the whole width, with how much of it is left. */
+@Composable
+private fun ContinueCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val source = remember { MutableInteractionSource() }
+    val scheme = MaterialTheme.colorScheme
+    val total = v.meta.durationSec.toDouble()
+    val frac = if (total > 0) (v.positionSec / total).toFloat().coerceIn(0f, 1f) else 0f
+    val minutes = kotlin.math.ceil((total - v.positionSec).coerceAtLeast(0.0) / 60).toInt()
+    Box(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).springPress(source, 0.98f)
+            .clip(RoundedCornerShape(22.dp)).background(scheme.surfaceContainer)
+            .combinedClickable(source, null, onLongClick = {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
+            }, onClick = onClick)
+            .drawBehind {
+                val h = 3.dp.toPx()
+                drawRect(scheme.outlineVariant.copy(alpha = 0.5f), Offset(0f, size.height - h), Size(size.width, h))
+                drawRect(scheme.primary, Offset(0f, size.height - h), Size(size.width * frac, h))
+            },
+    ) {
+        Row(Modifier.padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = v.meta.thumb, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.width(116.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(14.dp)),
+            )
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (minutes <= 1) "Almost done" else "$minutes min left", Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.Rounded.PlayArrow, null, tint = scheme.primary)
+        }
+    }
+}
+
 /** A section title with a See all button that opens that section on its own page. */
 @Composable
 private fun SectionHeader(title: String, count: Int, always: Boolean = false, onSeeAll: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         // A row already shows two. See all earns its place only when there is more to see.
-        if (always || count > 2) TextButton(onClick = onSeeAll) { Text("See all $count") }
+        if (always || count > 2) TextButton(onClick = onSeeAll) { Text("See all $count", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         else Spacer(Modifier.height(48.dp))
     }
 }

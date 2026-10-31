@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.Videocam
@@ -150,7 +151,6 @@ private enum class Status { Loading, Ready, Failed }
 @Composable
 fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     val app = LocalApp.current
-    val nav = LocalNav.current
     val ctx = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
@@ -174,7 +174,6 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     var showChapters by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
-    var confirmRemove by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var headerHidden by remember { mutableStateOf(false) }
     // The player folds into one row while you read, so the text gets the screen.
@@ -185,13 +184,24 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     val foldAfter = with(LocalDensity.current) { 48.dp.roundToPx() }
     // Full screen reading: no top row, player, bottom bar, status bar or navigation bar.
     var immersive by remember { mutableStateOf(false) }
+    // Full screen watching: the phone turns sideways and the picture takes everything.
+    var watchFull by remember(videoId) { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = immersive) { immersive = false }
-    androidx.compose.runtime.DisposableEffect(immersive) {
+    androidx.activity.compose.BackHandler(enabled = watchFull) { watchFull = false }
+    val activity = remember(ctx) {
         var c: android.content.Context = ctx
         while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
-        val window = (c as? android.app.Activity)?.window
+        c as? android.app.Activity
+    }
+    DisposableEffect(watchFull) {
+        if (watchFull) activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        onDispose { activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    }
+    val barsOff = immersive || watchFull
+    androidx.compose.runtime.DisposableEffect(barsOff) {
+        val window = activity?.window
         val controller = window?.let { androidx.core.view.WindowInsetsControllerCompat(it, it.decorView) }
-        if (immersive) {
+        if (barsOff) {
             controller?.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         } else {
@@ -264,6 +274,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         }
     }
     val colors = remember(doc, video.highlights) { doc?.let { Highlights.colorByWord(it.words, video.highlights) } }
+    val noted = remember(doc, video.highlights) { doc?.let { Highlights.notedRuns(it.words, video.highlights) } }
     val activeWord by remember(doc) { derivedStateOf { doc?.wordAtTime(ps.value.positionSec) ?: -1 } }
     val playerError by remember { derivedStateOf { ps.value.error } }
     val canWatch by remember { derivedStateOf { ps.value.canWatch } }
@@ -358,52 +369,54 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     }
     DisposableEffect(Unit) { onDispose { if (pausedForNote) app.player.play() } }
 
+    // A tap on a far word loses your place. For a few seconds there is a way back.
+    var jumpedFrom by remember(videoId) { mutableStateOf<Double?>(null) }
+    LaunchedEffect(jumpedFrom) { if (jumpedFrom != null) { delay(7000); jumpedFrom = null } }
+    fun noteJump(to: Double) {
+        val now = app.player.state.value.positionSec
+        if (kotlin.math.abs(to - now) > 30) jumpedFrom = now
+    }
+
     fun seek(sec: Double) {
+        noteJump(sec)
         app.player.seekTo(sec)
         app.player.play()
     }
 
+    val pictureOn by remember { derivedStateOf { ps.value.videoOn } }
+    LaunchedEffect(pictureOn) { if (!pictureOn) watchFull = false }
+
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Spacer(Modifier.height(if (immersive) 28.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
+            Spacer(Modifier.height(if (immersive) 28.dp else if (watchFull) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
             if (!immersive) ReaderHeader(
                 video = video, ps = ps, host = app.player,
-                collapsed = collapsed, onExpand = { collapsed = false }, onBack = onBack,
+                collapsed = collapsed, onExpand = { collapsed = false }, onBack = { if (watchFull) watchFull = false else onBack() },
                 searching = searching, onFind = { searching = !searching },
                 pinned = pinned, onPin = { pinned = !pinned; if (pinned) collapsed = false },
                 chapters = video.chapters,
+                onJump = { noteJump(it); app.player.seekTo(it) },
+                full = watchFull, onFull = { collapsed = false; editingId = null; searching = false; watchFull = !watchFull },
                 menuOpen = menu, onMenu = { menu = it },
             ) {
+                // What you change while reading, then what is about the video. Everything else is in one sheet, the same one the library uses.
                 DropdownMenuItem(
                     text = { Text("Find in this video") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     onClick = { menu = false; searching = true },
                 )
                 DropdownMenuItem(
-                    text = { Text(if (settings.autoScroll) "Follow along: on" else "Follow along: off") },
-                    leadingIcon = { Icon(Icons.Rounded.MyLocation, null, tint = if (settings.autoScroll) scheme.primary else scheme.onSurfaceVariant) },
+                    text = { Text("Follow along") },
+                    leadingIcon = { Icon(Icons.Rounded.MyLocation, null) },
+                    trailingIcon = { if (settings.autoScroll) Icon(Icons.Rounded.Check, "On", tint = scheme.primary) },
                     onClick = { app.settings.update { it.copy(autoScroll = !it.autoScroll) } },
                 )
                 DropdownMenuItem(
-                    text = { Text("Full screen") },
+                    text = { Text("Only the text") },
                     leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) },
                     onClick = { menu = false; immersive = true },
                 )
-                DropdownMenuItem(
-                    text = { Text("Go to channel") },
-                    leadingIcon = { Icon(Icons.Rounded.OpenInNew, null) },
-                    onClick = { menu = false; nav.openChannelOfVideo(video.meta.id) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Open note in Obsidian") },
-                    leadingIcon = { Icon(Icons.Rounded.OpenInNew, null) },
-                    onClick = { menu = false; openVideoNote(ctx, app, video) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Tags, queue, offline audio") },
-                    leadingIcon = { Icon(Icons.Rounded.Sell, null) },
-                    onClick = { menu = false; showActions = true },
-                )
+                androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
                 DropdownMenuItem(
                     text = { Text("About this video") },
                     leadingIcon = { Icon(Icons.Rounded.Description, null) },
@@ -415,14 +428,9 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     onClick = { menu = false; openInYouTube(ctx, videoId) },
                 )
                 DropdownMenuItem(
-                    text = { Text(if (video.pinned) "Unpin from library" else "Pin to library") },
-                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) },
-                    onClick = { menu = false; app.library.edit(videoId) { it.copy(pinned = !it.pinned) } },
-                )
-                DropdownMenuItem(
-                    text = { Text("Remove from library") },
-                    leadingIcon = { Icon(Icons.Rounded.Delete, null) },
-                    onClick = { menu = false; confirmRemove = true },
+                    text = { Text("Queue, tags, note, more") },
+                    leadingIcon = { Icon(Icons.Rounded.Sell, null) },
+                    onClick = { menu = false; showActions = true },
                 )
             }
 
@@ -456,7 +464,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             LaunchedEffect(videoId) { delay(380); settled = true }
             val fade by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f, androidx.compose.animation.core.tween(220), label = "transcriptFade")
             // The text stops above the phone's own buttons, so nothing is read through them.
-            Box(Modifier.weight(1f).fillMaxWidth().then(if (immersive || editingId != null) Modifier else Modifier.navigationBarsPadding()).clipToBounds().graphicsLayer { alpha = fade }) {
+            Box(Modifier.weight(1f).fillMaxWidth().then(if (barsOff || editingId != null) Modifier else Modifier.navigationBarsPadding()).clipToBounds().graphicsLayer { alpha = fade }) {
                 val d = doc
                 if (d != null && settled) {
                     AndroidView(
@@ -494,6 +502,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             }
                             tv.bind(d, style)
                             colors?.let { tv.applyHighlights(it) }
+                            noted?.let { tv.applyNotes(it) }
                             tv.setActive(androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { activeWord })
                         },
                     )
@@ -550,7 +559,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         // Bottom bar: only what you need while reading. It slides away when you scroll down
         // and comes back when you scroll up. The chapter you are in is its middle button.
         AnimatedVisibility(
-            visible = !headerHidden && !immersive && editingId == null,
+            visible = !headerHidden && !barsOff && editingId == null,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = androidx.compose.animation.slideInVertically(spring(1f, 500f)) { it },
             exit = androidx.compose.animation.slideOutVertically(spring(1f, 500f)) { it },
@@ -562,8 +571,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 ) {
                     TextButton(onClick = { showHighlights = true }) {
                         Icon(Icons.Rounded.BorderColor, "Highlights", Modifier.size(20.dp), tint = scheme.tertiary)
-                        Spacer(Modifier.width(6.dp))
-                        Text("${video.highlights.size}", style = MaterialTheme.typography.labelLarge, color = scheme.onSurface)
+                        if (video.highlights.isNotEmpty()) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("${video.highlights.size}", style = MaterialTheme.typography.labelLarge, color = scheme.onSurface)
+                        }
                     }
                     val chapter = video.chapters.getOrNull(activeChapter)
                     if (video.chapters.isNotEmpty()) TextButton(onClick = { showChapters = true }, modifier = Modifier.weight(1f)) {
@@ -575,10 +586,19 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                         )
                     } else Spacer(Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { showSave = true }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Upload, null, Modifier.size(18.dp))
+                    // The loud button means one thing: you marked something that is not in Obsidian yet.
+                    val clipped = video.clippedAt > 0
+                    val unsaved = video.highlights.count { it.createdAt > video.clippedAt }
+                    val label = when { !clipped -> "Clip"; unsaved > 0 -> "Clip $unsaved new"; else -> "Clipped" }
+                    val icon = if (clipped && unsaved == 0) Icons.Rounded.Check else Icons.Rounded.Upload
+                    if (unsaved > 0) Button(onClick = { showSave = true }, shapes = ButtonDefaults.shapes()) {
+                        Icon(icon, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Clip")
+                        Text(label, maxLines = 1)
+                    } else FilledTonalButton(onClick = { showSave = true }, shapes = ButtonDefaults.shapes()) {
+                        Icon(icon, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(label, maxLines = 1)
                     }
                 }
             }
@@ -586,7 +606,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
 
         // Shows whenever you have scrolled away from the spot that is being read.
         val bottomGap by androidx.compose.animation.core.animateDpAsState(
-            if (!headerHidden && !immersive && editingId == null) 76.dp else 16.dp, spring(1f, 500f), label = "syncGap",
+            if (!headerHidden && !barsOff && editingId == null) 76.dp else 16.dp, spring(1f, 500f), label = "syncGap",
         )
         // It only shows when the spoken word is out of sight. Scrolled away, but still looking at it, there is nothing to go back to.
         var wordOffScreen by remember { mutableStateOf(true) }
@@ -596,16 +616,28 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 delay(250)
             }
         }
+        val offerNow = away && wordOffScreen && settings.autoScroll && editingId == null && !watchFull
         AnimatedVisibility(
-            visible = away && wordOffScreen && settings.autoScroll && editingId == null,
+            visible = offerNow,
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = bottomGap),
             enter = fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
             exit = fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f),
         ) {
-            FilledTonalButton(onClick = { tview?.resync(activeWord); away = false }, shapes = ButtonDefaults.shapes()) {
-                Icon(Icons.Rounded.MyLocation, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Back to now")
+            FloatingPill(Icons.Rounded.MyLocation, "Back to now") { tview?.resync(activeWord); away = false }
+        }
+        var lastJump by remember { mutableStateOf(0.0) }
+        jumpedFrom?.let { lastJump = it }
+        AnimatedVisibility(
+            visible = jumpedFrom != null && !offerNow && editingId == null && !watchFull,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = bottomGap),
+            enter = fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f),
+        ) {
+            FloatingPill(Icons.Rounded.Replay, "Back to ${YouTube.formatTime(lastJump)}") {
+                val to = lastJump
+                jumpedFrom = null
+                app.player.seekTo(to)
+                doc?.wordAtTime(to)?.takeIf { it >= 0 }?.let { tview?.resync(it) }
             }
         }
 
@@ -702,7 +734,6 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         }
     }
     if (showActions) VideoActionsSheet(videoId, onDismiss = { showActions = false })
-    if (confirmRemove) RemoveVideoDialog(onKeep = { confirmRemove = false }, onRemove = { confirmRemove = false; app.removeVideo(videoId) })
     if (showAbout) {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         SmoothSheet(onDismissRequest = { showAbout = false }, sheetState = sheet) {
@@ -718,6 +749,18 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 )
                 Text(video.meta.description.trim(), style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
             }
+        }
+    }
+}
+
+/** A small button that floats over the text. It casts a shadow, so it never reads as part of the page. */
+@Composable
+private fun FloatingPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Surface(onClick = onClick, shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, shadowElevation = 6.dp) {
+        Row(Modifier.padding(start = 14.dp, end = 18.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }

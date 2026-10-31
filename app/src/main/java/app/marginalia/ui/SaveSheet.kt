@@ -11,6 +11,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -232,7 +234,7 @@ fun SaveSheet(
         }
 
         Column(
-            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp),
+            Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Save to Obsidian", style = MaterialTheme.typography.headlineSmall)
@@ -314,17 +316,15 @@ fun SaveSheet(
                     modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp),
                 )
             }
-            OutlinedButton(
-                onClick = { if ((key != null)) pickFolder = true },
-                enabled = (key != null),
+            if (key != null) OutlinedButton(
+                onClick = { pickFolder = true },
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(18.dp),
             ) {
                 Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(folder.ifBlank { "Vault root" }, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            }
-            if (!(key != null)) {
+            } else {
                 OutlinedTextField(
                     value = folder, onValueChange = { folder = it }, label = { Text("Folder") },
                     supportingText = { Text("Add this vault's folder in Settings to search your folders.") },
@@ -403,11 +403,6 @@ fun SaveSheet(
             }
 
             val primary = settings.saveBehavior
-            Button(onClick = { go(primary) }, modifier = Modifier.fillMaxWidth().height(56.dp), shapes = ButtonDefaults.shapes()) {
-                Icon(iconFor(primary), null, Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(labelFor(primary))
-            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("addToObsidian", "saveFile", "copyToClipboard", "share").filter { it != primary }.forEach { k ->
                     OutlinedButton(onClick = { go(k) }) {
@@ -417,7 +412,19 @@ fun SaveSheet(
                     }
                 }
             }
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+        }
+        // Always in reach, however long the form is. Swipe the sheet down to cancel.
+        androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = 8.dp) {
+            val primary = settings.saveBehavior
+            Button(
+                onClick = { go(primary) },
+                modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp).height(54.dp),
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Icon(iconFor(primary), null, Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(labelFor(primary))
+            }
         }
 
         if (pickFolder) {

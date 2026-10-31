@@ -103,6 +103,8 @@ fun HighlightsScreen(onBack: () -> Unit) {
     val all = remember(videos) {
         videos.flatMap { v -> v.highlights.map { Entry(v, it) } }.filter { it.h.text.isNotBlank() || it.h.note.isNotBlank() }
     }
+    // With one video the title on every card says nothing, and sorting by video has nothing to sort.
+    val oneVideo = remember(all) { all.map { it.video.meta.id }.distinct().size <= 1 }
     val tokens = remember(query) { query.trim().split(' ').filter { it.isNotEmpty() } }
     val tagCounts = remember(all) { all.flatMap { it.h.tags }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(12).map { it.key } }
     val shown = remember(all, tokens, onlyNotes, colors, tagSel) {
@@ -182,7 +184,7 @@ fun HighlightsScreen(onBack: () -> Unit) {
                         label = { Text(if (oldest) "Oldest" else "Newest") },
                     )
                 }
-                item("v") {
+                if (!oneVideo) item("v") {
                     FilterChip(
                         selected = byVideo, onClick = { if (byVideo) oldest = !oldest else byVideo = true },
                         label = { Text(if (byVideo && oldest) "By video, oldest" else "By video") },
@@ -191,7 +193,6 @@ fun HighlightsScreen(onBack: () -> Unit) {
                 item("notes") {
                     FilterChip(
                         selected = onlyNotes, onClick = { onlyNotes = !onlyNotes }, label = { Text("With notes") },
-                        leadingIcon = { Icon(Icons.Rounded.Notes, null, Modifier.size(18.dp)) },
                     )
                 }
                 items(tagCounts, key = { "t$it" }) { t ->
@@ -244,7 +245,7 @@ fun HighlightsScreen(onBack: () -> Unit) {
                         HighlightCard(e, tokens, showSource = false, onOpen = { openAt(e) }, onCopy = { copy(e, it) }, onDelete = { delete(e) })
                     }
                 } else items(flat, key = { "h" + it.h.id }) { e ->
-                    HighlightCard(e, tokens, showSource = true, onOpen = { openAt(e) }, onCopy = { copy(e, it) }, onDelete = { delete(e) })
+                    HighlightCard(e, tokens, showSource = !oneVideo, onOpen = { openAt(e) }, onCopy = { copy(e, it) }, onDelete = { delete(e) })
                 }
             }
         }

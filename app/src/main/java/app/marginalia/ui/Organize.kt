@@ -280,8 +280,11 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
 
             val nav = LocalNav.current
             GroupCard {
-                ListRow(Icons.Rounded.Description, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
-                RowDivider()
+                // A row you can only fail with is not offered. It shows up once there is a note to open.
+                if (videoNote(app, v) != null) {
+                    ListRow(Icons.Rounded.Description, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
+                    RowDivider()
+                }
                 ListRow(Icons.Rounded.Person, "Go to ${v.meta.author.ifBlank { "the channel" }}") { nav.openChannelOfVideo(videoId); onDismiss() }
             }
 
@@ -694,19 +697,22 @@ fun OfflineBadge(id: String) {
  * and falls back to finding the note by its source link in the vault index.
  * Returns false, after telling the user why, when there is nothing to open.
  */
-fun openVideoNote(ctx: android.content.Context, application: app.marginalia.MarginaliaApp, v: SavedVideo): Boolean {
+private fun videoNote(application: app.marginalia.MarginaliaApp, v: SavedVideo): Pair<String, String>? {
     val s = application.settings.value
-    var vault = v.noteVault.ifBlank { s.vault }
-    var path = v.notePath
-    if (path.isBlank()) {
-        val key = s.linkedVault(s.vault)
-        val ref = key?.let { application.vaults.indexes.value[it] }?.noteForSource(v.meta.url)
-        if (key != null && ref != null) { vault = key; path = ref.path }
-    }
-    if (path.isBlank() || vault.isBlank()) {
+    val vault = v.noteVault.ifBlank { s.vault }
+    if (v.notePath.isNotBlank() && vault.isNotBlank()) return vault to v.notePath
+    val key = s.linkedVault(s.vault) ?: return null
+    val ref = application.vaults.indexes.value[key]?.noteForSource(v.meta.url) ?: return null
+    return key to ref.path
+}
+
+fun openVideoNote(ctx: android.content.Context, application: app.marginalia.MarginaliaApp, v: SavedVideo): Boolean {
+    val found = videoNote(application, v)
+    if (found == null) {
         android.widget.Toast.makeText(ctx, "No note yet. Clip this video first.", android.widget.Toast.LENGTH_SHORT).show()
         return false
     }
+    val (vault, path) = found
     val ok = Sender.openNote(ctx, vault, path)
     if (!ok) android.widget.Toast.makeText(ctx, "Obsidian is not installed.", android.widget.Toast.LENGTH_SHORT).show()
     return ok
