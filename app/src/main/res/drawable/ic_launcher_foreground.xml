@@ -4,13 +4,18 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- A cut crystal in red, with a play mark at its heart. The solid shape first, so no hairline shows between the facets. -->
+    <path android:fillColor="#FFD60028" android:pathData="M38,40L57,23L76,43L70,72L50,85L34,68Z" />
+    <path android:fillColor="#FFFF6B6B" android:pathData="M38,40L57,23L53,54Z" />
+    <path android:fillColor="#FFFF2A45" android:pathData="M57,23L76,43L53,54Z" />
+    <path android:fillColor="#FFE0002B" android:pathData="M76,43L70,72L53,54Z" />
+    <path android:fillColor="#FFA8001F" android:pathData="M70,72L50,85L53,54Z" />
+    <path android:fillColor="#FFC8102E" android:pathData="M50,85L34,68L53,54Z" />
+    <path android:fillColor="#FFF2354C" android:pathData="M34,68L38,40L53,54Z" />
     <path
-        android:fillColor="#FFFF5A36"
-        android:strokeColor="#FFFF5A36"
-        android:strokeWidth="6"
+        android:fillColor="#FFFFFFFF"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4"
         android:strokeLineJoin="round"
-        android:pathData="M43,33L72,50L43,67Z" />
-    <path
-        android:fillColor="#FFF2C14E"
-        android:pathData="M38,77h32a3.5,3.5 0 0 1 0,7h-32a3.5,3.5 0 0 1 0,-7z" />
+        android:pathData="M47,44L65,54L47,64Z" />
 </vector>
