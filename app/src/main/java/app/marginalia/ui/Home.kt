@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.rounded.Search
@@ -566,14 +567,22 @@ private fun EmptyShelf() {
 
 @Composable
 private fun PlaylistCard(p: Playlist, videos: List<SavedVideo>, onClick: () -> Unit) {
-    val first = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }
+    // The first video's picture, even when that video is not in the library. An empty playlist gets a plain tile.
+    val firstId = p.videoIds.firstOrNull()
+    val thumb = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }?.meta?.thumb
+        ?: firstId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
     Column(Modifier.width(168.dp).clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick)) {
-        AsyncImage(
-            model = first?.meta?.thumb, contentDescription = null, contentScale = ContentScale.Crop,
+        if (thumb != null) AsyncImage(
+            model = thumb, contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
-        )
+        ) else Box(
+            Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.QueueMusic, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Text(p.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-        Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (p.videoIds.isEmpty()) "Empty" else if (p.videoIds.size == 1) "1 video" else "${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

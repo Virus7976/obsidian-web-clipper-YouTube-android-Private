@@ -179,6 +179,8 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
     val sheet = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val peeking = sheet.currentValue == androidx.compose.material3.SheetValue.PartiallyExpanded
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        // The stretch effect at the ends of a scroll fights the sheet's own drag and looks like a glitch. Off here.
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollFactory provides null) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -337,6 +339,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                 RowDivider()
                 ListRow(Icons.Rounded.Delete, "Remove from Marginalia", scheme.error) { confirmRemove = true }
             }
+        }
         }
     }
 
