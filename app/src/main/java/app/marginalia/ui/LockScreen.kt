@@ -9,7 +9,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import kotlinx.coroutines.withTimeout
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -350,14 +357,39 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
 
 /**
  * Covers the whole lock screen and swallows every touch, so a phone in a pocket cannot skip, pause or
- * highlight. Only a long press on the pill gets out.
+ * highlight. Only holding a finger on the pill for a moment gets out.
  */
 @Composable
 private fun TouchLock(muted: Color, onUnlock: () -> Unit) {
     val haptic = LocalHapticFeedback.current
+    var pill by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     Box(
         Modifier.fillMaxSize().background(Color(0xF2000000))
-            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+            .onGloballyPositioned { origin = it.positionInRoot() }
+            .pointerInput(Unit) {
+                // One handler does it all, so no other layer can steal the touch.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    var drain = true
+                    if (pill.contains(down.position + origin)) {
+                        val timedOut = try {
+                            withTimeout(700) { waitForUpOrCancellation() }
+                            false
+                        } catch (_: PointerEventTimeoutCancellationException) { true }
+                        if (timedOut) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            onUnlock()
+                        } else drain = false
+                    }
+                    while (drain) {
+                        val e = awaitPointerEvent()
+                        e.changes.forEach { it.consume() }
+                        if (e.changes.none { it.pressed }) break
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -365,14 +397,9 @@ private fun TouchLock(muted: Color, onUnlock: () -> Unit) {
             Spacer(Modifier.height(14.dp))
             Surface(
                 shape = RoundedCornerShape(24.dp), color = Color(0xFF1B1B1B),
-                modifier = Modifier.pointerInput(Unit) {
-                    detectTapGestures(onLongPress = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        onUnlock()
-                    })
-                },
+                modifier = Modifier.onGloballyPositioned { pill = it.boundsInRoot() },
             ) {
-                Text("Hold to unlock", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), color = Color(0xFFE6E6E6), style = MaterialTheme.typography.labelLarge)
+                Text("Hold to unlock", Modifier.padding(horizontal = 24.dp, vertical = 16.dp), color = Color(0xFFE6E6E6), style = MaterialTheme.typography.labelLarge)
             }
         }
     }

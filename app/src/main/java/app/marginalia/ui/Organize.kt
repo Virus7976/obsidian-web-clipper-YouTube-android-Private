@@ -7,7 +7,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -175,7 +178,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // header: what this video is
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -239,101 +242,90 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
             )
 
             val nav = LocalNav.current
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                androidx.compose.material3.TextButton(onClick = { if (openVideoNote(ctx, app, v)) onDismiss() }) {
-                    Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Open note")
-                }
-                androidx.compose.material3.TextButton(onClick = { nav.openChannelOfVideo(videoId); onDismiss() }) {
-                    Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Go to ${v.meta.author.ifBlank { "the channel" }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+            GroupCard {
+                ListRow(Icons.Rounded.OpenInNew, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
+                RowDivider()
+                ListRow(Icons.Rounded.OpenInNew, "Go to ${v.meta.author.ifBlank { "the channel" }}") { nav.openChannelOfVideo(videoId); onDismiss() }
             }
 
             if (!inLib) androidx.compose.material3.FilledTonalButton(
                 onClick = { scope.launch { app.addToLibrary(videoId) } }, modifier = Modifier.fillMaxWidth(),
             ) { Text("Add to library, to tag and sort it") }
-            if (inLib) {
-            // organize
-            SectionTitle("Category")
-            val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
-            var cat by remember(videoId) { mutableStateOf(v.category) }
-            OutlinedTextField(
-                value = cat, onValueChange = { cat = it; app.library.edit(videoId) { x -> x.copy(category = it.trim()) } },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
-                placeholder = { Text("For example: Learning") },
-            )
-            val catSuggestions = suggestFor(everyCategory, cat)
-            if (catSuggestions.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(catSuggestions, key = { "sc$it" }) { c ->
-                        FilterChip(selected = false, onClick = { cat = c; app.library.edit(videoId) { x -> x.copy(category = c) } }, label = { Text(c) })
+
+            if (inLib) GroupCard {
+                val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
+                var cat by remember(videoId) { mutableStateOf(v.category) }
+                FieldBlock("Category") {
+                    PillField(cat, { cat = it; app.library.edit(videoId) { x -> x.copy(category = it.trim()) } }, "For example: Learning")
+                    val catSuggestions = suggestFor(everyCategory, cat)
+                    if (catSuggestions.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(catSuggestions, key = { "sc$it" }) { c ->
+                                FilterChip(selected = false, onClick = { cat = c; app.library.edit(videoId) { x -> x.copy(category = c) } }, label = { Text(c) })
+                            }
+                        }
+                    }
+                }
+                RowDivider(16.dp)
+
+                var newTag by remember(videoId) { mutableStateOf("") }
+                fun addTag(raw: String) {
+                    val t = raw.trim().removePrefix("#").replace(' ', '-')
+                    if (t.isNotEmpty()) app.library.edit(videoId) { x -> x.copy(tags = (x.tags + t).distinctBy { it.lowercase() }) }
+                    newTag = ""
+                }
+                FieldBlock("Tags") {
+                    if (v.tags.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        v.tags.forEach { t ->
+                            InputChip(
+                                selected = true, onClick = { app.library.edit(videoId) { x -> x.copy(tags = x.tags - t) } },
+                                label = { Text("#$t") }, trailingIcon = { Icon(Icons.Rounded.Close, "Remove $t", Modifier.size(16.dp)) },
+                            )
+                        }
+                    }
+                    PillField(
+                        newTag, { newTag = it }, "Add a tag", onDone = { addTag(newTag) },
+                        trailing = { if (newTag.isNotBlank()) IconButton(onClick = { addTag(newTag) }) { Icon(Icons.Rounded.Add, "Add tag") } },
+                    )
+                    val everyTag = remember(videos) { videos.flatMap { it.tags }.distinctBy { it.lowercase() } }
+                    val tagSuggestions = suggestFor(everyTag.filter { t -> v.tags.none { it.equals(t, true) } }, newTag.removePrefix("#"))
+                    if (tagSuggestions.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(tagSuggestions, key = { "st$it" }) { t ->
+                                FilterChip(selected = false, onClick = { addTag(t) }, label = { Text("#$t") })
+                            }
+                        }
+                    }
+                }
+                RowDivider(16.dp)
+
+                FieldBlock("Playlists") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        playlists.forEach { p ->
+                            val inIt = videoId in p.videoIds
+                            FilterChip(
+                                selected = inIt,
+                                onClick = { if (inIt) app.playlists.removeVideo(p.id, videoId) else app.playlists.addVideo(p.id, videoId) },
+                                label = { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                        androidx.compose.material3.AssistChip(
+                            onClick = { newPlaylist = true },
+                            label = { Text("New playlist") },
+                            leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) },
+                        )
                     }
                 }
             }
 
-            SectionTitle("Tags")
-            if (v.tags.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                v.tags.forEach { t ->
-                    InputChip(
-                        selected = true, onClick = { app.library.edit(videoId) { x -> x.copy(tags = x.tags - t) } },
-                        label = { Text("#$t") }, trailingIcon = { Icon(Icons.Rounded.Close, "Remove $t", Modifier.size(16.dp)) },
-                    )
+            if (inLib) GroupCard {
+                ListRow(Icons.Rounded.PushPin, if (v.pinned) "Unpin" else "Pin to the top") { app.library.edit(videoId) { it.copy(pinned = !it.pinned) } }
+                if (inPlaylist) {
+                    RowDivider()
+                    ListRow(Icons.Rounded.OpenInNew, "Move to library") { app.library.edit(videoId) { it.copy(playlistId = "") }; onDismiss() }
                 }
-            }
-            var newTag by remember(videoId) { mutableStateOf("") }
-            fun addTag(raw: String) {
-                val t = raw.trim().removePrefix("#").replace(' ', '-')
-                if (t.isNotEmpty()) app.library.edit(videoId) { x -> x.copy(tags = (x.tags + t).distinctBy { it.lowercase() }) }
-                newTag = ""
-            }
-            OutlinedTextField(
-                value = newTag, onValueChange = { newTag = it }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
-                placeholder = { Text("Add a tag") },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { addTag(newTag) }),
-                trailingIcon = { if (newTag.isNotBlank()) IconButton(onClick = { addTag(newTag) }) { Icon(Icons.Rounded.Add, "Add tag") } },
-            )
-            val everyTag = remember(videos) { videos.flatMap { it.tags }.distinctBy { it.lowercase() } }
-            val tagSuggestions = suggestFor(everyTag.filter { t -> v.tags.none { it.equals(t, true) } }, newTag.removePrefix("#"))
-            if (tagSuggestions.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(tagSuggestions, key = { "st$it" }) { t ->
-                        FilterChip(selected = false, onClick = { addTag(t) }, label = { Text("#$t") })
-                    }
-                }
-            }
-
-            SectionTitle("Playlists")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                playlists.forEach { p ->
-                    val inIt = videoId in p.videoIds
-                    FilterChip(
-                        selected = inIt,
-                        onClick = { if (inIt) app.playlists.removeVideo(p.id, videoId) else app.playlists.addVideo(p.id, videoId) },
-                        label = { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    )
-                }
-                androidx.compose.material3.AssistChip(
-                    onClick = { newPlaylist = true },
-                    label = { Text("New playlist") },
-                    leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) },
-                )
-            }
-            }
-
-            // footer
-            if (inLib) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { app.library.edit(videoId) { it.copy(pinned = !it.pinned) } }) {
-                    Icon(Icons.Rounded.PushPin, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (v.pinned) "Unpin" else "Pin")
-                }
-                if (inPlaylist) TextButton(onClick = { app.library.edit(videoId) { it.copy(playlistId = "") }; onDismiss() }) { Text("Move to library") }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { confirmRemove = true }, colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = scheme.error)) {
-                    Icon(Icons.Rounded.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remove")
-                }
+                RowDivider()
+                ListRow(Icons.Rounded.Delete, "Remove from Marginalia", scheme.error) { confirmRemove = true }
             }
         }
     }
@@ -356,6 +348,78 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Keep") } },
         )
     }
+}
+
+/** A rounded panel that holds a set of related rows. */
+@Composable
+private fun GroupCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.material3.Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(content = content)
+    }
+}
+
+/** One tappable line in a [GroupCard]: icon, label. */
+@Composable
+private fun ListRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(20.dp), tint = tint)
+        Spacer(Modifier.width(14.dp))
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun RowDivider(start: androidx.compose.ui.unit.Dp = 50.dp) {
+    androidx.compose.material3.HorizontalDivider(Modifier.padding(start = start), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+}
+
+/** A titled block inside a [GroupCard]. */
+@Composable
+private fun FieldBlock(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        content()
+    }
+}
+
+/** A slim one-line text field. The outlined field is 56dp tall, which is too big inside a panel. */
+@Composable
+private fun PillField(
+    value: String,
+    onChange: (String) -> Unit,
+    placeholder: String,
+    onDone: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val scheme = MaterialTheme.colorScheme
+    androidx.compose.foundation.text.BasicTextField(
+        value = value, onValueChange = onChange, singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(scheme.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
+        modifier = Modifier.fillMaxWidth(),
+        decorationBox = { inner ->
+            Row(
+                Modifier.fillMaxWidth().height(44.dp).background(scheme.surfaceContainerHighest, RoundedCornerShape(14.dp)).padding(start = 14.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = scheme.outline)
+                    inner()
+                }
+                trailing?.invoke()
+            }
+        },
+    )
 }
 
 @Composable
