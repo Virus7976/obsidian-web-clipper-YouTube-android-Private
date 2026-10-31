@@ -71,6 +71,7 @@ class MarginaliaApp : Application() {
         player.cache = audio
         player.onEnded = { player.state.value.videoId?.let { markWatched(it); autoClip(it) }; playNextInQueue() }
         player.onWatched = { markWatched(it); autoClip(it) }
+        player.onPosition = { id, sec -> library.edit(id) { it.copy(positionSec = sec) } }
         // The reminder alarm follows the settings.
         appScope.launch {
             settings.state.map { it.reviewReminder to it.reviewHour }.distinctUntilChanged().collect { (on, hour) ->
@@ -84,12 +85,31 @@ class MarginaliaApp : Application() {
     /** Saves the highlights to Obsidian when a video ends, if that is switched on. */
     fun autoClip(id: String) {
         if (!settings.value.autoClip) return
+        // It runs near the end and again at the end. The second run has work only if something changed.
+        val now = library.get(id)?.highlights ?: return
+        if (autoClipped[id] == now) return
+        autoClipped[id] = now
         appScope.launch {
             val message = runCatching { app.marginalia.obsidian.AutoClip.run(this@MarginaliaApp, id) }.getOrNull() ?: return@launch
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 android.widget.Toast.makeText(this@MarginaliaApp, message, android.widget.Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    private val autoClipped = HashMap<String, List<app.marginalia.data.Highlight>>()
+
+    /** A channel page that was just read, so coming back from a video does not start it over. */
+    class ChannelPage(val opened: app.marginalia.data.ChannelSource.Opened, var videos: List<app.marginalia.data.ChannelVideo>, var more: Boolean, val at: Long)
+    val channelPages = HashMap<String, ChannelPage>()
+
+    /** Takes a video off this phone: playback, queue, saved audio, playlists and library. */
+    fun removeVideo(id: String) {
+        if (player.state.value.videoId == id) player.stop()
+        queue.remove(id)
+        audio.remove(id)
+        playlists.all.value.filter { id in it.videoIds }.forEach { playlists.removeVideo(it.id, id) }
+        library.remove(id)
     }
 
     /** A video was watched to the end. It leaves every playlist that is set to drop watched videos. */

@@ -99,6 +99,8 @@ class TranscriptView(context: Context) : ScrollView(context) {
         tv.setPadding(dp(18), dp(10), dp(18), dp(160))
         tv.setOnTouchListener { _, ev ->
             lastTouch = SystemClock.uptimeMillis()
+            // A finger on the page beats a glide that is still running.
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) glide?.cancel()
             tapDetector.onTouchEvent(ev)
             false
         }
@@ -266,9 +268,13 @@ class TranscriptView(context: Context) : ScrollView(context) {
         current = -1
     }
 
+    private var glide: android.animation.ObjectAnimator? = null
+
     private fun glideTo(target: Int) {
         glidingUntil = SystemClock.uptimeMillis() + 700
-        android.animation.ObjectAnimator.ofInt(this, "scrollY", scrollY, target).apply {
+        // Only one glide at a time. Two running together pull the page in two directions.
+        glide?.cancel()
+        glide = android.animation.ObjectAnimator.ofInt(this, "scrollY", scrollY, target).apply {
             duration = 480
             interpolator = android.view.animation.DecelerateInterpolator(1.7f)
             start()

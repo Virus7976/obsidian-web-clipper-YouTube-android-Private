@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -22,8 +23,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -49,6 +53,9 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -57,6 +64,74 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.toPath
+
+/** A plain strip behind the status bar, so a list that scrolls under it does not run into the clock. */
+@Composable
+fun androidx.compose.foundation.layout.BoxScope.StatusBarScrim() {
+    Box(
+        Modifier.align(Alignment.TopCenter).fillMaxWidth()
+            .windowInsetsTopHeight(androidx.compose.foundation.layout.WindowInsets.statusBars)
+            .background(MaterialTheme.colorScheme.background),
+    )
+}
+
+/** "1 video", "3 videos". */
+fun videoCount(n: Int) = if (n == 1) "1 video" else "$n videos"
+
+/** Runs [block] when [key] really changes. A screen that comes back with its saved state does not count. */
+@Composable
+fun OnChanged(key: String, block: suspend () -> Unit) {
+    var last by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(key) }
+    androidx.compose.runtime.LaunchedEffect(key) { if (key != last) { last = key; block() } }
+}
+
+/** The top row of an inner page: back arrow, title, and an optional count under it. */
+@Composable
+fun BackRow(title: String, onBack: () -> Unit, subtitle: String? = null) {
+    androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * A bottom sheet. The stretch effect at the ends of a scroll fights the sheet's own drag and looks like
+ * a glitch, so it is off inside every sheet.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun SmoothSheet(
+    onDismissRequest: () -> Unit,
+    sheetState: androidx.compose.material3.SheetState,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = sheetState) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollFactory provides null) { content() }
+    }
+}
+
+/** The highlight colours as tappable dots. The picked one is larger and ringed. */
+@Composable
+fun ColorDots(picked: Int, modifier: Modifier = Modifier, onPick: (Int) -> Unit) {
+    androidx.compose.foundation.layout.Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        app.marginalia.data.HighlightColors.forEachIndexed { i, c ->
+            Box(
+                Modifier.size(32.dp).clip(CircleShape)
+                    .clickable(onClickLabel = c.name) { onPick(i) }
+                    .semantics { contentDescription = c.name; selected = i == picked },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier.size(if (i == picked) 24.dp else 20.dp).clip(CircleShape).background(Color(c.ui))
+                        .then(if (i == picked) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier),
+                )
+            }
+        }
+    }
+}
 
 /** Shrinks a little while pressed and springs back. */
 @Composable

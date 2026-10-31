@@ -47,6 +47,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -107,6 +108,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.graphics.Color
@@ -168,6 +170,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     var showChapters by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var headerHidden by remember { mutableStateOf(false) }
     // Full screen reading: no top row, player, bottom bar, status bar or navigation bar.
@@ -196,7 +199,9 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
 
     // Start the audio right away. The transcript can arrive later.
     LaunchedEffect(videoId) {
-        app.player.load(videoId, video.meta.title, video.meta.author, video.positionSec)
+        // A highlight picked in search starts at that highlight, even near the end.
+        val start = app.pendingSeek.value?.takeIf { it.first == videoId }?.second ?: video.resumeSec
+        app.player.load(videoId, video.meta.title, video.meta.author, start)
     }
 
     // Fetch transcript, chapters and the publish date.
@@ -233,19 +238,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             }
     }
 
-    LaunchedEffect(videoId) {
-        while (true) {
-            delay(5000)
-            val p = app.player.state.value
-            if (p.videoId == videoId && p.positionSec > 1) app.library.edit(videoId) { it.copy(positionSec = p.positionSec) }
-        }
-    }
-    DisposableEffect(videoId) {
-        onDispose {
-            val p = app.player.state.value
-            if (p.videoId == videoId && p.positionSec > 1) app.library.edit(videoId) { it.copy(positionSec = p.positionSec) }
-        }
-    }
+    // Playback keeps its own place while it runs. This catches a seek made while paused.
+    DisposableEffect(videoId) { onDispose { app.player.savePosition() } }
 
     val playing by remember { derivedStateOf { ps.value.playing } }
     DisposableEffect(settings.keepScreenOn, playing) {
@@ -261,6 +255,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     }
     val colors = remember(doc, video.highlights) { doc?.let { Highlights.colorByWord(it.words, video.highlights) } }
     val activeWord by remember(doc) { derivedStateOf { doc?.wordAtTime(ps.value.positionSec) ?: -1 } }
+    val playerError by remember { derivedStateOf { ps.value.error } }
+    val canWatch by remember { derivedStateOf { ps.value.canWatch } }
     val activeChapter by remember(video.chapters) {
         derivedStateOf { video.chapters.indexOfLast { it.start <= ps.value.positionSec + 0.5 } }
     }
@@ -268,18 +264,21 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
     val darkText = scheme.onSurface.toArgb()
+    val readerTypeface = remember(settings.readerFont, settings.customFontPath) {
+        when (settings.readerFont) {
+            "sans" -> ResourcesCompat.getFont(ctx, R.font.atkinson_regular)
+            "system" -> Typeface.DEFAULT
+            "custom" -> customTypeface(settings.customFontPath) ?: ResourcesCompat.getFont(ctx, R.font.newsreader)
+            else -> ResourcesCompat.getFont(ctx, R.font.newsreader)
+        }
+    }
     val style = ReaderStyle(
         textColor = darkText,
         mutedColor = scheme.onSurfaceVariant.toArgb(),
         accent = scheme.primary.toArgb(),
         sizeSp = settings.readerFontSize,
         lineMult = settings.lineHeight,
-        typeface = when (settings.readerFont) {
-            "sans" -> ResourcesCompat.getFont(ctx, R.font.atkinson_regular)
-            "system" -> Typeface.DEFAULT
-            "custom" -> customTypeface(settings.customFontPath) ?: ResourcesCompat.getFont(ctx, R.font.newsreader)
-            else -> ResourcesCompat.getFont(ctx, R.font.newsreader)
-        },
+        typeface = readerTypeface,
         highlightAlpha = if (scheme.background.luminanceApprox() < 0.5f) 0.42f else 0.55f,
         holdSelects = settings.holdSelects,
         maxWidthPx = with(density) { (settings.maxWidth * settings.readerFontSize).dp.roundToPx() },
@@ -287,13 +286,13 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     )
 
     var tview by remember { mutableStateOf<TranscriptView?>(null) }
-    LaunchedEffect(ps.value.error) { if (ps.value.error != null) app.updates.checkSoon() }
+    LaunchedEffect(playerError) { if (playerError != null) app.updates.checkSoon() }
     // "Show the video" is a setting. Otherwise the reader is listen-only and has no picture.
     var videoAsked by remember(videoId) { mutableStateOf(false) }
     // Coming back to a video that already plays must not restart it just to show the picture.
     val alreadyPlaying = remember(videoId) { app.player.state.value.videoId == videoId && app.player.exo.mediaItemCount > 0 }
-    LaunchedEffect(ps.value.canWatch) {
-        if (!videoAsked && ps.value.canWatch) {
+    LaunchedEffect(canWatch) {
+        if (!videoAsked && canWatch) {
             videoAsked = true
             if (!alreadyPlaying && settings.pinPlayer && !ps.value.videoOn) app.player.setVideo(true)
         }
@@ -309,22 +308,32 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     }
     var away by remember { mutableStateOf(false) }
     var editingId by remember(videoId) { mutableStateOf<String?>(null) }
+    var noteFocused by remember(videoId) { mutableStateOf(false) }
     LaunchedEffect(settings.autoScroll) { if (!settings.autoScroll) away = false }
-    LaunchedEffect(activeWord, settings.autoScroll) {
-        if (settings.autoScroll) tview?.follow(activeWord)
+    // The spoken word changes several times a second. It goes straight to the text view, so this
+    // whole screen does not redraw for it.
+    LaunchedEffect(tview, doc, settings.autoScroll) {
+        androidx.compose.runtime.snapshotFlow { activeWord }.collect { w ->
+            tview?.setActive(w)
+            if (settings.autoScroll) tview?.follow(w)
+        }
     }
-    // Working on a highlight or a note: stay where you are, and offer the Sync button.
-    // While a note is typed the page stays put. If you want it, playback waits too, and carries on after.
+    androidx.activity.compose.BackHandler(enabled = searching) { searching = false }
+    androidx.activity.compose.BackHandler(enabled = editingId != null) { editingId = null }
+    // Working on a highlight: stay where you are, and offer the Sync button.
+    LaunchedEffect(editingId) { if (editingId != null) tview?.pauseFollow() else noteFocused = false }
+    // Playback waits only while you are in the note box, not every time a highlight is made.
     var pausedForNote by remember { mutableStateOf(false) }
-    LaunchedEffect(editingId) {
-        if (editingId != null) {
-            tview?.pauseFollow()
-            if (settings.pauseWhileNoting && ps.value.playing) { app.player.pause(); pausedForNote = true }
+    val typing = editingId != null && noteFocused
+    LaunchedEffect(typing) {
+        if (typing) {
+            if (settings.pauseWhileNoting && app.player.state.value.playing) { app.player.pause(); pausedForNote = true }
         } else if (pausedForNote) {
             pausedForNote = false
             app.player.play()
         }
     }
+    DisposableEffect(Unit) { onDispose { if (pausedForNote) app.player.play() } }
 
     fun seek(sec: Double) {
         app.player.seekTo(sec)
@@ -393,7 +402,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                         DropdownMenuItem(
                             text = { Text("Remove from library") },
                             leadingIcon = { Icon(Icons.Rounded.Delete, null) },
-                            onClick = { menu = false; app.queue.remove(videoId); app.audio.remove(videoId); app.library.remove(videoId); onBack() },
+                            onClick = { menu = false; confirmRemove = true },
                         )
                     }
                 }
@@ -463,11 +472,11 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             }
                             tv.bind(d, style)
                             colors?.let { tv.applyHighlights(it) }
-                            tv.setActive(activeWord)
+                            tv.setActive(androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { activeWord })
                         },
                     )
                 } else if (status == Status.Failed) {
-                    SongNotes(video, failure, ps.value.positionSec, onSeek = { seek(it) }, onRetry = { retry++ })
+                    SongNotes(video, failure, now = { ps.value.positionSec }, onSeek = { seek(it) }, onRetry = { retry++ })
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
                 }
@@ -509,9 +518,11 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         val editing = video.highlights.firstOrNull { it.id == editingId }
         // Tags and links come from the vault you save to.
         val noteVault = settings.linkedVault(settings.vault) ?: settings.vaultFolders.keys.firstOrNull()
-        val tagPool = app.library.videos.value.flatMap { v -> v.highlights.flatMap { it.tags } }
-            .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key } +
-            (noteVault?.let { app.vaults.indexes.value[it]?.tags?.keys }.orEmpty())
+        val tagPool = remember(editingId, noteVault) {
+            app.library.videos.value.flatMap { v -> v.highlights.flatMap { it.tags } }
+                .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key } +
+                (noteVault?.let { app.vaults.indexes.value[it]?.tags?.keys }.orEmpty())
+        }
         AnimatedVisibility(
             visible = editing != null,
             modifier = Modifier.align(Alignment.BottomCenter).imePadding().padding(
@@ -530,6 +541,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     onTags = { t -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(tags = t) else it }) } },
                     vault = noteVault,
                     suggestTags = tagPool,
+                    onTyping = { noteFocused = it },
                     onColor = { c ->
                         app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = c) else it }) }
                         app.settings.update { it.copy(highlightColor = c) } // the next highlight starts with this colour
@@ -537,6 +549,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     onDelete = {
                         editingId = null
                         app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.filterNot { it.id == h.id }) }
+                        scope.launch {
+                            val r = snackbar.showSnackbar("Highlight deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                            if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) app.library.edit(videoId) { v -> v.copy(highlights = v.highlights + h) }
+                        }
                     },
                     onPlay = { seek(h.startSec) },
                     onClose = { editingId = null },
@@ -563,7 +579,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             ) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showHighlights = true }) {
-                        Icon(Icons.Rounded.BorderColor, null, Modifier.size(20.dp), tint = scheme.tertiary)
+                        Icon(Icons.Rounded.BorderColor, "Highlights", Modifier.size(20.dp), tint = scheme.tertiary)
                         Spacer(Modifier.width(6.dp))
                         Text("${video.highlights.size}", style = MaterialTheme.typography.labelLarge)
                     }
@@ -605,8 +621,20 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         val d = doc
         val tv = tview
         if (transcript != null && (d == null || tv == null)) return@LaunchedEffect
+        settleText()
         d?.wordAtTime(p.second)?.takeIf { it >= 0 }?.let { tv?.scrollToWord(it) }
         app.pendingSeek.value = null
+    }
+    // Coming back to a video: the page opens where you are, not at the first line.
+    var placed by remember(videoId) { mutableStateOf(false) }
+    LaunchedEffect(videoId, doc, tview) {
+        val d = doc ?: return@LaunchedEffect
+        val tv = tview ?: return@LaunchedEffect
+        if (placed) return@LaunchedEffect
+        placed = true
+        if (app.pendingSeek.value?.first == videoId) return@LaunchedEffect
+        settleText()
+        d.wordAtTime(app.player.state.value.positionSec).takeIf { it > 0 }?.let { tv.scrollToWord(it) }
     }
 
     if (showSave) {
@@ -636,7 +664,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     }
     if (showChapters) {
         val sheet = rememberModalBottomSheetState()
-        ModalBottomSheet(onDismissRequest = { showChapters = false }, sheetState = sheet) {
+        SmoothSheet(onDismissRequest = { showChapters = false }, sheetState = sheet) {
             Column(Modifier.padding(bottom = 24.dp).verticalScroll(rememberScrollState())) {
                 Text("Chapters", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge)
                 video.chapters.forEachIndexed { i, c ->
@@ -661,9 +689,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         }
     }
     if (showActions) VideoActionsSheet(videoId, onDismiss = { showActions = false })
+    if (confirmRemove) RemoveVideoDialog(onKeep = { confirmRemove = false }, onRemove = { confirmRemove = false; app.removeVideo(videoId) })
     if (showAbout) {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { showAbout = false }, sheetState = sheet) {
+        SmoothSheet(onDismissRequest = { showAbout = false }, sheetState = sheet) {
             Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(video.meta.title, style = MaterialTheme.typography.titleLarge)
                 Text(
@@ -782,68 +811,90 @@ private fun ChapterChips(chapters: List<Chapter>, active: Int, onClick: (Chapter
 @Composable
 private fun HighlightsSheet(video: SavedVideo, onDismiss: () -> Unit, onJump: (Highlight) -> Unit) {
     val app = LocalApp.current
+    val scope = rememberCoroutineScope()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val snackbar = remember { SnackbarHostState() }
     var find by remember { mutableStateOf("") }
-    val ordered = remember(video.highlights, find) { video.highlights.sortedBy { it.startSec }.filter { matchesQuery(find, it.text, it.note) } }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            Text(
-                if (video.highlights.isEmpty()) "No highlights yet" else "${video.highlights.size} highlights",
-                Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.titleLarge,
-            )
-            if (video.highlights.isEmpty()) {
+    val ordered = remember(video.highlights, find) { video.highlights.sortedBy { it.startSec }.filter { matchesQuery(find, it.text, it.note, it.tags.joinToString(" ")) } }
+    fun change(h: Highlight, block: (Highlight) -> Highlight) =
+        app.library.edit(video.meta.id) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) block(it) else it }) }
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Box {
+            Column(Modifier.padding(bottom = 24.dp)) {
                 Text(
-                    "Hold a word in the transcript. Drag the handles to take more, then pick a colour.",
-                    Modifier.padding(horizontal = 24.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (video.highlights.isEmpty()) "No highlights yet" else "${video.highlights.size} highlights",
+                    Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.titleLarge,
                 )
-            }
-            // A long list is hard to scan. The box finds a word in what you highlighted or wrote.
-            if (video.highlights.size >= 5) SearchField(find, { find = it }, "Search these highlights")
-            if (find.isNotBlank() && ordered.isEmpty()) Text(
-                "No highlight matches \"$find\".", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            LazyColumn(Modifier.weight(1f, fill = false)) {
-                itemsIndexed(ordered, key = { _, h -> h.id }) { _, h ->
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clip(MaterialTheme.shapes.large)
-                            .background(MaterialTheme.colorScheme.surfaceContainer)
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { onJump(h) }) { Text(YouTube.formatTime(h.startSec)) }
-                            Spacer(Modifier.weight(1f))
-                            HighlightColors.forEachIndexed { i, c ->
-                                Box(
-                                    Modifier.padding(horizontal = 3.dp).size(if (i == h.color) 26.dp else 20.dp).clip(CircleShape)
-                                        .background(Color(c.ui))
-                                        .clickable {
-                                            app.library.edit(video.meta.id) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = i) else it }) }
-                                        },
-                                )
+                if (video.highlights.isEmpty()) {
+                    Text(
+                        "Hold a word in the transcript. Drag the handles to take more, then pick a colour.",
+                        Modifier.padding(horizontal = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // A long list is hard to scan. The box finds a word in what you highlighted or wrote.
+                if (video.highlights.size >= 5) SearchField(find, { find = it }, "Search these highlights")
+                if (find.isNotBlank() && ordered.isEmpty()) Text(
+                    "No highlight matches \"$find\".", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LazyColumn(Modifier.weight(1f, fill = false)) {
+                    itemsIndexed(ordered, key = { _, h -> h.id }) { _, h ->
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                                .clip(MaterialTheme.shapes.large)
+                                .background(MaterialTheme.colorScheme.surfaceContainer)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { onJump(h) }) { Text(YouTube.formatTime(h.startSec)) }
+                                Spacer(Modifier.weight(1f))
+                                ColorDots(h.color) { i -> change(h) { it.copy(color = i) } }
+                                IconButton(onClick = {
+                                    app.library.edit(video.meta.id) { v -> v.copy(highlights = v.highlights.filterNot { it.id == h.id }) }
+                                    scope.launch {
+                                        val r = snackbar.showSnackbar("Highlight deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                                        if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) app.library.edit(video.meta.id) { v -> v.copy(highlights = v.highlights + h) }
+                                    }
+                                }) { Icon(Icons.Rounded.Close, "Remove highlight") }
                             }
-                            IconButton(onClick = { app.library.edit(video.meta.id) { v -> v.copy(highlights = v.highlights.filterNot { it.id == h.id }) } }) {
-                                Icon(Icons.Rounded.Close, "Remove highlight")
-                            }
+                            if (h.text.isNotBlank()) Text(h.text, style = MaterialTheme.typography.bodyMedium)
+                            var note by remember(h.id) { mutableStateOf(h.note) }
+                            SaveWhenIdle(note, h.note) { n -> change(h) { it.copy(note = n) } }
+                            OutlinedTextField(
+                                value = note,
+                                onValueChange = { note = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Add a note") },
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (h.tags.isNotEmpty()) Text(
+                                h.tags.joinToString(" ") { "#$it" }, style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                        Text(h.text, style = MaterialTheme.typography.bodyMedium)
-                        OutlinedTextField(
-                            value = h.note,
-                            onValueChange = { n -> app.library.edit(video.meta.id) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(note = n) else it }) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Add a note") },
-                            textStyle = MaterialTheme.typography.bodyMedium,
-                        )
                     }
                 }
             }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
         }
     }
+}
+
+/** The text view lays its words out a frame or two after it gets them. Before that it has no line positions. */
+private suspend fun settleText() = repeat(3) { androidx.compose.runtime.withFrameNanos { } }
+
+/** Saves typed text shortly after typing stops, and once more when the box goes away. */
+@Composable
+private fun SaveWhenIdle(text: String, saved: String, onSave: (String) -> Unit) {
+    LaunchedEffect(text) { if (text != saved) { delay(450); onSave(text) } }
+    val latest by androidx.compose.runtime.rememberUpdatedState(text)
+    val stored by androidx.compose.runtime.rememberUpdatedState(saved)
+    val save by androidx.compose.runtime.rememberUpdatedState(onSave)
+    DisposableEffect(Unit) { onDispose { if (latest != stored) save(latest) } }
 }
 
 /** Quick note editor for one highlight: change its colour, write a note, play from it, or remove it. */
@@ -855,6 +906,7 @@ private fun HighlightNoteBar(
     onTags: (List<String>) -> Unit,
     vault: String?,
     suggestTags: List<String>,
+    onTyping: (Boolean) -> Unit,
     onColor: (Int) -> Unit,
     onDelete: () -> Unit,
     onPlay: () -> Unit,
@@ -872,8 +924,7 @@ private fun HighlightNoteBar(
         if (t.isNotEmpty() && tags.none { it.equals(t, true) }) onTags(tags + t)
         newTag = ""
     }
-    // save shortly after typing stops, and again when the bar goes away
-    LaunchedEffect(text) { if (text != h.note) { kotlinx.coroutines.delay(450); onNote(text) } }
+    androidx.compose.runtime.key(h.id) { SaveWhenIdle(text, h.note, onNote) }
     Surface(
         modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
@@ -896,7 +947,7 @@ private fun HighlightNoteBar(
                     if (vault != null && v.endsWith("[[") && !text.endsWith("[[")) { linkTyped = true; linking = true }
                     text = v
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { onTyping(it.isFocused) },
                 placeholder = { Text(if (vault != null) "Add a note. Type [[ to link a note" else "Add a note") },
                 minLines = 1,
                 maxLines = 4,
@@ -922,17 +973,9 @@ private fun HighlightNoteBar(
                     items(near, key = { "nt$it" }) { s -> androidx.compose.material3.FilterChip(selected = false, onClick = { addTag(s) }, label = { Text("#$s") }) }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                HighlightColors.forEachIndexed { i, c ->
-                    Box(
-                        Modifier.size(if (i == h.color) 28.dp else 22.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(Color(c.ui.toInt()))
-                            .then(if (i == h.color) Modifier.border(2.dp, scheme.onSurface, androidx.compose.foundation.shape.CircleShape) else Modifier)
-                            .clickable { onColor(i) },
-                    )
-                }
-                Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // On a narrow phone the dots scroll, so the buttons at the end never fall off the bar.
+                ColorDots(h.color, Modifier.weight(1f).horizontalScroll(rememberScrollState()), onColor)
                 IconButton(onClick = { tagMode = !tagMode }, Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Sell, "Tags", tint = if (tagMode || tags.isNotEmpty()) scheme.primary else scheme.onSurfaceVariant)
                 }

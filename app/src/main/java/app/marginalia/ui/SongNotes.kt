@@ -43,12 +43,13 @@ import java.util.UUID
  * it was started, and goes into the Obsidian note with the other highlights.
  */
 @Composable
-fun SongNotes(video: SavedVideo, failure: String?, nowSec: Double, onSeek: (Double) -> Unit, onRetry: () -> Unit) {
+fun SongNotes(video: SavedVideo, failure: String?, now: () -> Double, onSeek: (Double) -> Unit, onRetry: () -> Unit) {
     val app = LocalApp.current
     val settings by app.settings.state.collectAsState()
     var text by remember(video.meta.id) { mutableStateOf("") }
     // The note belongs to the moment you started writing, not the moment you press Add.
     var stamp by remember(video.meta.id) { mutableStateOf<Double?>(null) }
+    val nowSec = now()
     val at = stamp ?: nowSec
 
     fun add(note: String, t: Double) {

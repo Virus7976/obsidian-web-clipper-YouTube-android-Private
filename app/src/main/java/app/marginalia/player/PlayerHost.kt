@@ -89,6 +89,8 @@ class PlayerHost(
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
+            // Without this the player never hears about volume changes, so Pause on mute cannot work.
+            .setDeviceVolumeControlEnabled(true)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -102,6 +104,9 @@ class PlayerHost(
     /** Called when a video plays to its end. The queue hooks in here. */
     var onEnded: (() -> Unit)? = null
 
+    /** Called with the video id and second to keep, while playing and whenever playback stops or moves on. */
+    var onPosition: ((String, Double) -> Unit)? = null
+
     /** Called once when a video gets within the last 5 percent, so a playlist can drop it. */
     var onWatched: ((String) -> Unit)? = null
     private var watchedId: String? = null
@@ -110,8 +115,8 @@ class PlayerHost(
     private var queue: ReceiveChannel<Streams>? = null
     private var current: Streams? = null
     private var job: Job? = null
-    private var failures = 0
     private var pausedByMute = false
+    private var lastSave = 0L
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -127,6 +132,7 @@ class PlayerHost(
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying) }
+            if (!isPlaying) savePosition()
         }
 
         override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
@@ -157,7 +163,9 @@ class PlayerHost(
 
     private val poll = object : Runnable {
         override fun run() {
-            if (_state.value.videoId != null) {
+            val st = _state.value
+            // While a source loads, or after every source failed, the player has no position. The last good one stays.
+            if (st.videoId != null && !st.loading && st.error == null && exo.mediaItemCount > 0) {
                 val pos = exo.currentPosition / 1000.0
                 val dur = exo.duration.takeIf { it != C.TIME_UNSET }?.div(1000.0)
                 val vid = _state.value.videoId
@@ -169,9 +177,19 @@ class PlayerHost(
                     if (kotlin.math.abs(s.positionSec - pos) < 0.04 && (dur == null || dur == s.durationSec)) s
                     else s.copy(positionSec = pos, durationSec = dur ?: s.durationSec)
                 }
+                val now = android.os.SystemClock.uptimeMillis()
+                if (exo.isPlaying && now - lastSave >= SAVE_EVERY_MS) { lastSave = now; savePosition() }
             }
-            main.postDelayed(this, 200)
+            // Paused, nothing moves, so there is no reason to redraw five times a second.
+            main.postDelayed(this, if (exo.isPlaying) 200 else 1000)
         }
+    }
+
+    /** Keeps the current second, wherever the app is: reader open, reader closed, or the queue moving on. */
+    fun savePosition() {
+        val s = _state.value
+        val id = s.videoId ?: return
+        if (s.positionSec > 1) onPosition?.invoke(id, s.positionSec)
     }
 
     // ---------- loading ----------
@@ -192,12 +210,12 @@ class PlayerHost(
     }
 
     private fun begin(id: String, title: String, author: String, startSec: Double, autoplay: Boolean) {
+        savePosition()
         job?.cancel()
         queue?.cancel()
         exo.stop()
         exo.clearMediaItems()
         current = null
-        failures = 0
         _state.value = PlayerState(videoId = id, title = title, author = author, positionSec = startSec, loading = true, speed = _state.value.speed)
         main.removeCallbacks(poll)
         main.post(poll)
@@ -222,12 +240,14 @@ class PlayerHost(
     private fun next(resumeSec: Double, why: String) {
         val id = _state.value.videoId ?: return
         val q = queue ?: finder.candidates(id).produceIn(scope).also { queue = it }
-        failures++
+        // A paused video stays paused when its source changes.
+        val play = exo.playWhenReady
         _state.update { it.copy(loading = true, buffering = false) }
+        job?.cancel()
         job = scope.launch {
             val n = q.receiveCatching().getOrNull()
             if (n == null) fail("Every source failed ($why). Try again in a minute.")
-            else start(n, resumeSec, true)
+            else start(n, resumeSec, play)
         }
     }
 
@@ -301,6 +321,7 @@ class PlayerHost(
     fun setSpeed(speed: Float) = exo.setPlaybackSpeed(speed)
 
     fun stop() {
+        savePosition()
         job?.cancel()
         queue?.cancel()
         queue = null
@@ -309,5 +330,9 @@ class PlayerHost(
         main.removeCallbacks(poll)
         _state.value = PlayerState(speed = _state.value.speed)
         _locked.value = false
+    }
+
+    private companion object {
+        const val SAVE_EVERY_MS = 5_000L
     }
 }

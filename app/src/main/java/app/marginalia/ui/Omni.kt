@@ -108,7 +108,7 @@ fun OmniSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {
             Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))

@@ -94,9 +94,17 @@ object Updater {
         }
 
         val bodyNorm = norm(body0)
-        val fresh = video.highlights.sortedBy { it.startSec }
-            .filter { h -> norm(h.text).let { it.isNotEmpty() && !bodyNorm.contains(it) } }
-            .map { NoteBuilder.highlightEntry(video, it, settings) }
+        val fresh = video.highlights.sortedBy { it.startSec }.mapNotNull { h ->
+            val key = norm(h.text.ifBlank { h.note })
+            when {
+                key.isEmpty() -> null
+                !bodyNorm.contains(key) -> NoteBuilder.highlightEntry(video, h, settings)
+                // The quote is there, but this note was written after the clip. Add it as a timed note and leave the quote alone.
+                h.text.isNotBlank() && h.note.isNotBlank() && !bodyNorm.contains(norm(h.note)) ->
+                    NoteBuilder.highlightEntry(video, h.copy(text = "", endSec = h.startSec), settings)
+                else -> null
+            }
+        }
 
         if (addedProps == 0 && fresh.isEmpty()) return Merged(existing, 0, 0)
 

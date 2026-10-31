@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.marginalia.data.ChannelSource
+import app.marginalia.MarginaliaApp
 import app.marginalia.data.ChannelVideo
 import kotlinx.coroutines.launch
 
@@ -49,25 +50,30 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val subs by app.subscriptions.all.collectAsState()
     val library by app.library.videos.collectAsState()
-    var opened by remember(url) { mutableStateOf<ChannelSource.Opened?>(null) }
-    var videos by remember(url) { mutableStateOf<List<ChannelVideo>>(emptyList()) }
+    val cached = remember(url) { app.channelPages[url]?.takeIf { System.currentTimeMillis() - it.at < 15 * 60_000L } }
+    var opened by remember(url) { mutableStateOf(cached?.opened) }
+    var videos by remember(url) { mutableStateOf(cached?.videos.orEmpty()) }
     var error by remember(url) { mutableStateOf<String?>(null) }
-    var more by remember(url) { mutableStateOf(false) }
+    var more by remember(url) { mutableStateOf(cached?.more ?: false) }
     var loadingMore by remember(url) { mutableStateOf(false) }
-    var query by remember(url) { mutableStateOf("") }
+    var query by androidx.compose.runtime.saveable.rememberSaveable(url) { mutableStateOf("") }
     var actionsFor by remember { mutableStateOf<String?>(null) }
     var actionsMeta by remember { mutableStateOf<app.marginalia.data.VideoMeta?>(null) }
 
     LaunchedEffect(url) {
+        if (cached != null) return@LaunchedEffect
         runCatching { ChannelSource.open(app.youtube, url) }
-            .onSuccess { opened = it; videos = it.videos; more = it.cursor.next != null }
+            .onSuccess {
+                opened = it; videos = it.videos; more = it.cursor.next != null
+                app.channelPages[url] = MarginaliaApp.ChannelPage(it, videos, more, System.currentTimeMillis())
+            }
             .onFailure { error = "Could not open that channel. Check your connection." }
     }
 
     actionsFor?.let { id -> VideoActionsSheet(id, pending = actionsMeta, onDismiss = { actionsFor = null }) }
     val inLibrary = remember(library) { library.map { it.meta.id }.toSet() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    LaunchedEffect(query) { listState.scrollToItem(0) }
+    OnChanged(query) { listState.scrollToItem(0) }
     val o = opened
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -141,6 +147,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
                             val next = runCatching { ChannelSource.more(app.youtube, o.channel, o.cursor) }.getOrDefault(emptyList())
                             videos = (videos + next).distinctBy { it.meta.id }
                             more = o.cursor.next != null && next.isNotEmpty()
+                            app.channelPages[url]?.let { it.videos = videos; it.more = more }
                             loadingMore = false
                         }
                     }
@@ -152,5 +159,6 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
                 }
             }
         }
+        StatusBarScrim()
     }
 }

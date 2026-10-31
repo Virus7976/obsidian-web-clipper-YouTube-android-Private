@@ -34,6 +34,8 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInNew
@@ -91,6 +93,10 @@ fun List<SavedVideo>.sortedBy(sort: String): List<SavedVideo> = when (sort) {
     "added" -> sortedByDescending { it.addedAt }
     else -> this
 }
+
+val LibraryFilterSaver = androidx.compose.runtime.saveable.listSaver<LibraryFilter, String?>(
+    { listOf(it.category, it.tag) }, { LibraryFilter(it[0], it[1]) },
+)
 
 /** A filter picked in the library: a category or a tag. */
 data class LibraryFilter(val category: String? = null, val tag: String? = null) {
@@ -177,10 +183,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
     var newPlaylist by remember { mutableStateOf(false) }
 
     val sheet = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    val peeking = sheet.currentValue == androidx.compose.material3.SheetValue.PartiallyExpanded
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
-        // The stretch effect at the ends of a scroll fights the sheet's own drag and looks like a glitch. Off here.
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollFactory provides null) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -271,17 +274,10 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
 
             val nav = LocalNav.current
             GroupCard {
-                ListRow(Icons.Rounded.OpenInNew, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
+                ListRow(Icons.Rounded.Description, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
                 RowDivider()
-                ListRow(Icons.Rounded.OpenInNew, "Go to ${v.meta.author.ifBlank { "the channel" }}") { nav.openChannelOfVideo(videoId); onDismiss() }
+                ListRow(Icons.Rounded.Person, "Go to ${v.meta.author.ifBlank { "the channel" }}") { nav.openChannelOfVideo(videoId); onDismiss() }
             }
-
-            // Fade it, never remove it. Removing it shifts the whole sheet in the middle of a swipe.
-            val hintAlpha by androidx.compose.animation.core.animateFloatAsState(if (peeking) 1f else 0f, label = "hint")
-            if (inLib) Text(
-                "Swipe up for category, tags and more", Modifier.fillMaxWidth().graphicsLayer { alpha = hintAlpha },
-                style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
 
             if (inLib) GroupCard {
                 val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
@@ -334,12 +330,11 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                 ListRow(Icons.Rounded.PushPin, if (v.pinned) "Unpin" else "Pin to the top") { app.library.edit(videoId) { it.copy(pinned = !it.pinned) } }
                 if (inPlaylist) {
                     RowDivider()
-                    ListRow(Icons.Rounded.OpenInNew, "Move to library") { app.library.edit(videoId) { it.copy(playlistId = "") }; onDismiss() }
+                    ListRow(Icons.Rounded.Add, "Move to library") { app.library.edit(videoId) { it.copy(playlistId = "") }; onDismiss() }
                 }
                 RowDivider()
                 ListRow(Icons.Rounded.Delete, "Remove from Marginalia", scheme.error) { confirmRemove = true }
             }
-        }
         }
     }
 
@@ -352,15 +347,19 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
         },
     )
 
-    if (confirmRemove) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove this video?") },
-            text = { Text("Its highlights and saved audio on this phone are removed too. Your Obsidian note is not touched.") },
-            confirmButton = { TextButton(onClick = { confirmRemove = false; removeVideo(app, videoId); onDismiss() }) { Text("Remove") } },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Keep") } },
-        )
-    }
+    if (confirmRemove) RemoveVideoDialog(onKeep = { confirmRemove = false }, onRemove = { confirmRemove = false; app.removeVideo(videoId); onDismiss() })
+}
+
+/** One question, asked the same way wherever a video can be removed. */
+@Composable
+fun RemoveVideoDialog(onKeep: () -> Unit, onRemove: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onKeep,
+        title = { Text("Remove this video?") },
+        text = { Text("Its highlights and saved audio are removed from this phone. Your Obsidian note stays.") },
+        confirmButton = { TextButton(onClick = onRemove) { Text("Remove") } },
+        dismissButton = { TextButton(onClick = onKeep) { Text("Keep") } },
+    )
 }
 
 /** A rounded panel that holds a set of related rows. */
@@ -472,13 +471,6 @@ private fun ActionTile(
     }
 }
 
-private fun removeVideo(app: app.marginalia.MarginaliaApp, id: String) {
-    app.queue.remove(id)
-    app.audio.remove(id)
-    app.playlists.all.value.filter { id in it.videoIds }.forEach { app.playlists.removeVideo(it.id, id) }
-    app.library.remove(id)
-}
-
 /** The three-dot button that opens the sheet. */
 @Composable
 fun MoreButton(onClick: () -> Unit) {
@@ -515,19 +507,32 @@ fun LazyListScope.playlistsTab(
 
 @Composable
 private fun PlaylistRow(p: Playlist, videos: List<SavedVideo>, onClick: () -> Unit) {
-    val first = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = first?.meta?.thumb, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.width(116.dp).androidxAspect().clip(RoundedCornerShape(16.dp)),
-        )
+        PlaylistThumb(p, videos, Modifier.width(116.dp))
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(p.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-            Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(videoCount(p.videoIds.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+/** The first video's picture, even when that video is not in the library. An empty playlist gets a plain tile. */
+@Composable
+fun PlaylistThumb(p: Playlist, videos: List<SavedVideo>, modifier: Modifier = Modifier) {
+    val thumb = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }?.meta?.thumb
+        ?: p.videoIds.firstOrNull()?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+    val shape = RoundedCornerShape(16.dp)
+    if (thumb != null) AsyncImage(
+        model = thumb, contentDescription = null, contentScale = ContentScale.Crop,
+        modifier = modifier.androidxAspect().clip(shape),
+    ) else androidx.compose.foundation.layout.Box(
+        modifier.androidxAspect().clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Rounded.QueueMusic, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -540,10 +545,8 @@ private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
     val videos by app.library.videos.collectAsState()
     val progress by app.audio.progress.collectAsState()
     var confirm by remember { mutableStateOf(false) }
+    BackRow(p.title, onBack, videoCount(p.videoIds.size))
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = onBack) { Text("‹ Library") }
-        Text(p.title, style = MaterialTheme.typography.titleLarge)
-        Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { app.playlists.setRemoveWhenWatched(p.id, !p.removeWhenWatched) }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -591,7 +594,7 @@ private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
                         val v = videos.firstOrNull { it.meta.id == id } ?: return@forEach
                         if (v.playlistId == p.id) {
                             if (v.highlights.isNotEmpty() || v.clippedAt > 0) app.library.edit(id) { it.copy(playlistId = "") }
-                            else removeVideo(app, id)
+                            else app.removeVideo(id)
                         }
                     }
                     app.playlists.remove(p.id)

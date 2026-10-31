@@ -55,7 +55,11 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
     MarginaliaTheme(settings) {
         CompositionLocalProvider(LocalApp provides app) {
             val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
-            BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
+            // Home stays underneath. A second Back in the same frame must not take it away too.
+            fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
+            BackHandler(enabled = stack.size > 1) { pop() }
+            // Each screen keeps its place while another one is on top: open tab, scroll, search box.
+            val saved = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
             val ctx = androidx.compose.ui.platform.LocalContext.current
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             fun toast(text: String) = android.widget.Toast.makeText(ctx, text, android.widget.Toast.LENGTH_SHORT).show()
@@ -160,6 +164,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                     },
                     label = "screens",
                 ) { screen ->
+                    saved.SaveableStateProvider(screen.toString()) {
                     when (screen) {
                         Screen.Home -> HomeScreen(
                             incoming = addLink,
@@ -167,15 +172,17 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                             onOpen = nav.openVideo,
                             onSettings = { stack.add(Screen.Settings) },
                         )
-                        is Screen.Reader -> ReaderScreen(screen.id, onBack = { stack.removeAt(stack.lastIndex) })
-                        is Screen.Channel -> ChannelScreen(screen.url, onBack = { stack.removeAt(stack.lastIndex) })
+                        // The reader also goes back by itself when its video is removed, so it checks that it is on top.
+                        is Screen.Reader -> ReaderScreen(screen.id, onBack = { if (stack.last() == screen) pop() })
+                        is Screen.Channel -> ChannelScreen(screen.url, onBack = { pop() })
                         Screen.Settings -> SettingsScreen(
-                            onBack = { stack.removeAt(stack.lastIndex) },
+                            onBack = { pop() },
                             onEditTemplate = { stack.add(Screen.Template(it)) },
                         )
-                        is Screen.Template -> TemplateEditorScreen(screen.id, onBack = { stack.removeAt(stack.lastIndex) })
-                        Screen.Review -> ReviewScreen(onBack = { stack.removeAt(stack.lastIndex) })
-                        Screen.Highlights -> HighlightsScreen(onBack = { stack.removeAt(stack.lastIndex) })
+                        is Screen.Template -> TemplateEditorScreen(screen.id, onBack = { pop() })
+                        Screen.Review -> ReviewScreen(onBack = { pop() })
+                        Screen.Highlights -> HighlightsScreen(onBack = { pop() })
+                    }
                     }
                 }
             }

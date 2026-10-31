@@ -111,7 +111,7 @@ fun LibrarySearchSheet(onDismiss: () -> Unit, onOpenPlaylist: (String) -> Unit) 
         onDismiss()
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it; filter = null },

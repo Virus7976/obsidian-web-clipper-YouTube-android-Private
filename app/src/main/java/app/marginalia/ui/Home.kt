@@ -92,6 +92,8 @@ import app.marginalia.data.SavedVideo
 import app.marginalia.data.VideoMeta
 import app.marginalia.data.YouTube
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Composable
@@ -106,15 +108,16 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val settings by app.settings.state.collectAsState()
     val videos by app.library.videos.collectAsState()
-    val player by app.player.state.collectAsState()
+    // Only which video plays. The position changes five times a second and must not redraw this list.
+    val nowId by remember { app.player.state.map { it.videoId }.distinctUntilChanged() }.collectAsState(app.player.state.value.videoId)
 
     var addOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var actionsMeta by remember { mutableStateOf<VideoMeta?>(null) }
     var newPlaylistOpen by remember { mutableStateOf(false) }
-    var page by remember { mutableStateOf<String?>(null) }
-    var feedFilter by remember { mutableStateOf("all") }
+    var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var feedFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("all") }
     var addInitial by remember { mutableStateOf<String?>(null) }
     val subs by app.subscriptions.all.collectAsState()
     val feed by app.feed.state.collectAsState()
@@ -124,8 +127,8 @@ fun HomeScreen(
     var tabRequest by remember { mutableStateOf<String?>(null) }
     var actionsFor by remember { mutableStateOf<String?>(null) }
     var actionsInPlaylist by remember { mutableStateOf(false) }
-    var openPlaylist by remember { mutableStateOf<String?>(null) }
-    var filter by remember { mutableStateOf(LibraryFilter()) }
+    var openPlaylist by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var filter by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = LibraryFilterSaver) { mutableStateOf(LibraryFilter()) }
     val playlists by app.playlists.all.collectAsState()
     val queue by app.queue.ids.collectAsState()
     val reviewCards by app.reviews.cards.collectAsState()
@@ -141,14 +144,14 @@ fun HomeScreen(
     }
 
     val visibleTabs = settings.homeTabs.filter { it in HomeTabs.keys }.ifEmpty { listOf("library") }
-    var tab by remember { mutableStateOf(visibleTabs.first()) }
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(visibleTabs.first()) }
     if (tab !in visibleTabs) tab = visibleTabs.first()
     tabRequest?.let { if (it in visibleTabs) tab = it; tabRequest = null }
     val showLibrary = tab == "library" || visibleTabs.size == 1
     val showFeed = tab == "feed"
     val showQueue = tab == "queue"
     LaunchedEffect(tab, subs.size) { if (tab == "feed") app.feed.refresh() }
-    LaunchedEffect(tab) { query = ""; page = null }
+    OnChanged(tab) { query = ""; page = null }
     androidx.activity.compose.BackHandler(enabled = query.isNotEmpty() || page != null || openPlaylist != null) {
         when {
             query.isNotEmpty() -> query = ""
@@ -158,7 +161,7 @@ fun HomeScreen(
     }
     // A new search starts at the top, where the search box is, not wherever the list was scrolled to.
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    LaunchedEffect(query, tab) { listState.scrollToItem(0) }
+    OnChanged("$tab|$query") { listState.scrollToItem(0) }
     var refreshing by remember { mutableStateOf(false) }
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
@@ -265,7 +268,7 @@ fun HomeScreen(
             )
             if (showQueue) queueTab(
                 queue = if (query.isBlank()) queue else queue.filter { id -> videos.firstOrNull { it.meta.id == id }?.matchesQuery(query) == true },
-                videos = videos, nowId = if (query.isBlank()) player.videoId else null, onOpenVideo = onOpen,
+                videos = videos, nowId = if (query.isBlank()) nowId else null, onOpenVideo = onOpen,
                 onClear = { app.queue.clear() }, onRemove = { app.queue.remove(it) },
                 onMore = { actionsInPlaylist = false; actionsFor = it },
             )
@@ -279,12 +282,12 @@ fun HomeScreen(
             )
             val searching = query.isNotBlank()
             val browsing = showLibrary && !inPlaylist && !searching && page == null
-            val resumeAll = libraryVideos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }
+            val resumeAll = libraryVideos.filter { it.positionSec > 5 && it.resumeSec > 0.0 }
             val pinned = libraryVideos.filter { it.pinned }
             val onMoreVideo: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
             val rowPad = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
             if (browsing && playlists.isNotEmpty()) {
-                item("pl-label") { SectionHeader("Playlists", playlists.size) { page = "playlists" } }
+                item("pl-label") { SectionHeader("Playlists", playlists.size, always = true) { page = "playlists" } }
                 item("pl-row") {
                     LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(playlists.take(12), key = { "pc" + it.id }) { p -> PlaylistCard(p, videos) { openPlaylist = p.id } }
@@ -310,12 +313,7 @@ fun HomeScreen(
             if (showLibrary && !inPlaylist && page != null) {
                 val pageTitle = when (page) { "playlists" -> "Playlists"; "resume" -> "Pick up where you left off"; else -> "Pinned" }
                 val pageCount = when (page) { "playlists" -> playlists.size; "resume" -> resumeAll.size; else -> pinned.size }
-                item("page-head") {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        TextButton(onClick = { page = null }) { Text("‹ Library") }
-                        Text("$pageTitle · $pageCount", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.titleLarge)
-                    }
-                }
+                item("page-head") { BackRow(pageTitle, { page = null }, "$pageCount") }
                 if (page == "playlists") {
                     item("pl-new") {
                         TextButton(onClick = { newPlaylistOpen = true }, modifier = Modifier.padding(horizontal = 10.dp)) {
@@ -382,48 +380,56 @@ fun HomeScreen(
 
         actionsFor?.let { id -> VideoActionsSheet(id, inPlaylist = actionsInPlaylist, pending = actionsMeta, onDismiss = { actionsFor = null }) }
 
-        // Now playing pill
-        val nowId = player.videoId
-        AnimatedVisibility(
-            visible = nowId != null,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = expandVertically(spring(0.6f, 380f)) + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
+        StatusBarScrim()
+        NowPlayingBar(Modifier.align(Alignment.BottomCenter), onOpen)
+    }
+}
+
+/** The bar along the bottom while something plays. It reads the position itself, so only this bar redraws. */
+@Composable
+private fun NowPlayingBar(modifier: Modifier, onOpen: (String) -> Unit) {
+    val app = LocalApp.current
+    val player by app.player.state.collectAsState()
+    val nowId = player.videoId
+    AnimatedVisibility(
+        visible = nowId != null,
+        modifier = modifier,
+        enter = expandVertically(spring(0.6f, 380f)) + fadeIn(),
+        exit = shrinkVertically() + fadeOut(),
+    ) {
+        Surface(
+            onClick = { nowId?.let(onOpen) },
+            modifier = Modifier
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(36.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shadowElevation = 8.dp,
         ) {
-            Surface(
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.systemBars)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .fillMaxWidth()
-                    .clickable { nowId?.let(onOpen) },
-                shape = RoundedCornerShape(36.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shadowElevation = 8.dp,
+            val frac = if (player.durationSec > 0) (player.positionSec / player.durationSec).toFloat().coerceIn(0f, 1f) else 0f
+            val track = MaterialTheme.colorScheme.onPrimaryContainer
+            Row(
+                Modifier.drawBehind {
+                    // A thin line along the bottom edge shows how far along the video is.
+                    val h = 3.dp.toPx()
+                    drawRect(track.copy(alpha = 0.12f), Offset(0f, size.height - h), Size(size.width, h))
+                    drawRect(track.copy(alpha = 0.55f), Offset(0f, size.height - h), Size(size.width * frac, h))
+                }.padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                val frac = if (player.durationSec > 0) (player.positionSec / player.durationSec).toFloat().coerceIn(0f, 1f) else 0f
-                val track = MaterialTheme.colorScheme.onPrimaryContainer
-                Row(
-                    Modifier.drawBehind {
-                        // A thin line along the bottom edge shows how far along the video is.
-                        val h = 3.dp.toPx()
-                        drawRect(track.copy(alpha = 0.12f), Offset(0f, size.height - h), Size(size.width, h))
-                        drawRect(track.copy(alpha = 0.55f), Offset(0f, size.height - h), Size(size.width * frac, h))
-                    }.padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AsyncImage(
-                        model = nowId?.let { "https://i.ytimg.com/vi/$it/default.jpg" },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(52.dp).clip(CircleShape),
-                    )
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text(player.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text(player.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
-                    }
-                    MorphingPlayButton(playing = player.playing, onClick = { app.player.toggle() }, size = 52.dp)
-                    IconButton(onClick = { app.player.stop() }) { Icon(Icons.Rounded.Close, "Stop", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                AsyncImage(
+                    model = nowId?.let { "https://i.ytimg.com/vi/$it/mqdefault.jpg" },
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(52.dp).clip(CircleShape),
+                )
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text(player.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(player.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
                 }
+                MorphingPlayButton(playing = player.playing, onClick = { app.player.toggle() }, size = 52.dp)
+                IconButton(onClick = { app.player.stop() }) { Icon(Icons.Rounded.Close, "Stop", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
             }
         }
     }
@@ -502,7 +508,6 @@ private val Color_scrim = androidx.compose.ui.graphics.Color(0xB3000000)
 @Composable
 private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val app = LocalApp.current
     val source = remember { MutableInteractionSource() }
     val radius = pressedRadius(source, 22.dp, 8.dp)
     Row(
@@ -529,18 +534,13 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
                     Icon(Icons.Rounded.Highlight, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
                     Text("${v.highlights.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                 }
+                if (v.pinned) Icon(Icons.Rounded.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 OfflineBadge(v.meta.id)
                 if (v.clippedAt > 0) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Rounded.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     Text("Clipped", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
-        }
-        IconButton(onClick = { app.library.edit(v.meta.id) { it.copy(pinned = !it.pinned) } }) {
-            Icon(
-                Icons.Rounded.PushPin, if (v.pinned) "Unpin" else "Pin",
-                tint = if (v.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-            )
         }
         MoreButton { onMore(v.meta.id) }
     }
@@ -549,18 +549,12 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
 @Composable
 private fun EmptyShelf() {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(MaterialShapes.Cookie9Sided.toShape()).background(MaterialTheme.colorScheme.primaryContainer))
-            Box(Modifier.size(64.dp).clip(MaterialShapes.Clover4Leaf.toShape()).background(MaterialTheme.colorScheme.tertiaryContainer))
-            Box(Modifier.size(36.dp).clip(MaterialShapes.Pill.toShape()).background(MaterialTheme.colorScheme.secondaryContainer))
-        }
         Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Tap Add to paste a link or search YouTube. Or share a video to Marginalia from the YouTube app.",
+            "Tap Add to paste a link or search YouTube. You can also share a video here from the YouTube app.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -569,22 +563,11 @@ private fun EmptyShelf() {
 
 @Composable
 private fun PlaylistCard(p: Playlist, videos: List<SavedVideo>, onClick: () -> Unit) {
-    // The first video's picture, even when that video is not in the library. An empty playlist gets a plain tile.
-    val firstId = p.videoIds.firstOrNull()
-    val thumb = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }?.meta?.thumb
-        ?: firstId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
-    Column(Modifier.width(168.dp).clickable(onClick = onClick)) {
-        if (thumb != null) AsyncImage(
-            model = thumb, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
-        ) else Box(
-            Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Rounded.QueueMusic, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+    val source = remember { MutableInteractionSource() }
+    Column(Modifier.width(168.dp).springPress(source).clickable(source, null, onClick = onClick)) {
+        PlaylistThumb(p, videos, Modifier.fillMaxWidth())
         Text(p.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-        Text(if (p.videoIds.isEmpty()) "Empty" else if (p.videoIds.size == 1) "1 video" else "${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (p.videoIds.isEmpty()) "Empty" else videoCount(p.videoIds.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -622,9 +605,11 @@ private fun VideoCard(v: SavedVideo, onMore: (String) -> Unit, pinned: Boolean =
 
 /** A section title with a See all button that opens that section on its own page. */
 @Composable
-private fun SectionHeader(title: String, count: Int, onSeeAll: () -> Unit) {
+private fun SectionHeader(title: String, count: Int, always: Boolean = false, onSeeAll: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        TextButton(onClick = onSeeAll) { Text("See all $count") }
+        // A row already shows two. See all earns its place only when there is more to see.
+        if (always || count > 2) TextButton(onClick = onSeeAll) { Text("See all $count") }
+        else Spacer(Modifier.height(48.dp))
     }
 }

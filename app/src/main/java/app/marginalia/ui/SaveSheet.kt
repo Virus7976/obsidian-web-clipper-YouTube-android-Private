@@ -83,14 +83,14 @@ fun SaveSheet(
     val indexes by app.vaults.indexes.collectAsState()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         val templates = settings.templates
         if (templates.isEmpty()) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("No templates", style = MaterialTheme.typography.titleLarge)
                 Text("Add one in Settings, or import your Web Clipper settings file.", style = MaterialTheme.typography.bodyMedium)
             }
-            return@ModalBottomSheet
+            return@SmoothSheet
         }
         var templateId by remember {
             mutableStateOf(
@@ -215,7 +215,7 @@ fun SaveSheet(
                 if (!merged.changed) { onDone("${target.name} already has all of this.", true); return@launch }
                 val ok = withContext(Dispatchers.IO) { Sender.writeText(ctx, target.uri, merged.text) }
                 if (ok) {
-                    app.vaults.refresh(vault, force = true)
+                    app.vaults.refresh(key ?: vault, force = true)
                     val bits = listOfNotNull(
                         merged.addedHighlights.takeIf { it > 0 }?.let { "$it highlight${if (it == 1) "" else "s"}" },
                         merged.addedProps.takeIf { it > 0 }?.let { "$it propert${if (it == 1) "y" else "ies"}" },

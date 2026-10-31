@@ -28,6 +28,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // The notification says this: open the app to unlock.
+        (application as MarginaliaApp).player.setLocked(false)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (application as MarginaliaApp).player.savePosition()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

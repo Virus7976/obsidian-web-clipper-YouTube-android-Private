@@ -133,7 +133,7 @@ fun AddSheet(initial: String?, onDismiss: () -> Unit, onPlaylist: (String) -> Un
         else { delay(250); runCatching { focus.requestFocus() } }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.imePadding().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -173,7 +173,7 @@ fun AddSheet(initial: String?, onDismiss: () -> Unit, onPlaylist: (String) -> Un
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(r.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "${r.videos.size} videos. They go into a playlist. Your library stays clean.",
+                            "${videoCount(r.videos.size)} go into a new playlist.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

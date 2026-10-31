@@ -92,7 +92,11 @@ data class SavedVideo(
     val notePath: String = "",
     /** What was filled in the last time this video was clipped. It comes back next time. */
     val lastClip: ClipMemo? = null,
-)
+) {
+    /** Where to start. A video you finished starts over, so it does not end again in a few seconds. */
+    val resumeSec: Double
+        get() = if (meta.durationSec > 0 && positionSec >= meta.durationSec - 10) 0.0 else positionSec
+}
 
 @Serializable
 data class ClipMemo(

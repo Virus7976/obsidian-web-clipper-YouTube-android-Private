@@ -44,10 +44,17 @@
                 <data android:host="www.youtube.com" />
                 <data android:host="m.youtube.com" />
                 <data android:host="youtube.com" />
-                <data android:host="youtu.be" />
                 <data android:pathPrefix="/watch" />
                 <data android:pathPrefix="/shorts" />
                 <data android:pathPrefix="/live" />
+            </intent-filter>
+            <!-- A short link has the video id as its path, so it needs its own filter. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="youtu.be" />
             </intent-filter>
         </activity>
 

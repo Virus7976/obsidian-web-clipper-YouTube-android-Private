@@ -91,11 +91,13 @@ fun HighlightsScreen(onBack: () -> Unit) {
     val videos by app.library.videos.collectAsState()
     val snackbar = remember { SnackbarHostState() }
 
-    var query by remember { mutableStateOf("") }
-    var byVideo by remember { mutableStateOf(false) }
-    var onlyNotes by remember { mutableStateOf(false) }
-    var colors by remember { mutableStateOf(setOf<Int>()) }
-    var tagSel by remember { mutableStateOf(setOf<String>()) }
+    val intSet = androidx.compose.runtime.saveable.listSaver<Set<Int>, Int>({ it.toList() }, { it.toSet() })
+    val textSet = androidx.compose.runtime.saveable.listSaver<Set<String>, String>({ it.toList() }, { it.toSet() })
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var byVideo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var onlyNotes by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var colors by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = intSet) { mutableStateOf(setOf<Int>()) }
+    var tagSel by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = textSet) { mutableStateOf(setOf<String>()) }
 
     val all = remember(videos) {
         videos.flatMap { v -> v.highlights.map { Entry(v, it) } }.filter { it.h.text.isNotBlank() || it.h.note.isNotBlank() }
@@ -124,7 +126,7 @@ fun HighlightsScreen(onBack: () -> Unit) {
 
     // A new search or filter starts at the top.
     val list = rememberLazyListState()
-    LaunchedEffect(query, onlyNotes, colors, byVideo, tagSel) { list.scrollToItem(0) }
+    OnChanged("$query|$onlyNotes|$colors|$byVideo|$tagSel") { list.scrollToItem(0) }
 
     fun openAt(e: Entry) {
         app.library.edit(e.video.meta.id) { it.copy(positionSec = e.h.startSec) }
@@ -157,7 +159,7 @@ fun HighlightsScreen(onBack: () -> Unit) {
                     Text(
                         when {
                             all.isEmpty() -> "Nothing yet"
-                            shown.size == all.size -> "${all.size} in ${videos.count { it.highlights.isNotEmpty() }} videos"
+                            shown.size == all.size -> "${all.size} in ${videoCount(videos.count { it.highlights.isNotEmpty() })}"
                             else -> "${shown.size} of ${all.size}"
                         },
                         style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
