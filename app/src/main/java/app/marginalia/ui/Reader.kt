@@ -142,6 +142,7 @@ private enum class Status { Loading, Ready, Failed }
 @Composable
 fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     val app = LocalApp.current
+    val nav = LocalNav.current
     val ctx = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
@@ -344,6 +345,11 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             text = { Text("Full screen") },
                             leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) },
                             onClick = { menu = false; immersive = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Go to channel") },
+                            leadingIcon = { Icon(Icons.Rounded.OpenInNew, null) },
+                            onClick = { menu = false; nav.openChannelOfVideo(video.meta.id) },
                         )
                         DropdownMenuItem(
                             text = { Text("Open note in Obsidian") },

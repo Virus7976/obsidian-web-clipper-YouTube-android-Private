@@ -22,12 +22,25 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import app.marginalia.MarginaliaApp
+import app.marginalia.data.ChannelSource
+import app.marginalia.data.YouTube
+import kotlinx.coroutines.launch
 
 val LocalApp = staticCompositionLocalOf<MarginaliaApp> { error("MarginaliaApp not provided") }
+
+/** Ways to move around that any screen can use. */
+class Nav(
+    val openVideo: (String) -> Unit,
+    val openChannel: (String) -> Unit,
+    val openChannelOfVideo: (String) -> Unit,
+)
+
+val LocalNav = staticCompositionLocalOf<Nav> { error("Nav not provided") }
 
 sealed interface Screen {
     data object Home : Screen
     data class Reader(val id: String) : Screen
+    data class Channel(val url: String) : Screen
     data object Settings : Screen
     data class Template(val id: String) : Screen
 }
@@ -39,6 +52,53 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
         CompositionLocalProvider(LocalApp provides app) {
             val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
             BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            fun toast(text: String) = android.widget.Toast.makeText(ctx, text, android.widget.Toast.LENGTH_SHORT).show()
+
+            // The reader on top is replaced by the next video, so Back still goes home.
+            fun pushReader(id: String) {
+                val top = stack.last()
+                if (top is Screen.Reader) { if (top.id != id) stack[stack.lastIndex] = Screen.Reader(id) }
+                else stack.add(Screen.Reader(id))
+            }
+            fun pushChannel(url: String) {
+                val top = stack.last()
+                if (!(top is Screen.Channel && top.url == url)) stack.add(Screen.Channel(url))
+            }
+            val nav = remember {
+                Nav(
+                    openVideo = { id ->
+                        if (app.library.get(id) != null) pushReader(id)
+                        else scope.launch {
+                            toast("Opening…")
+                            if (app.addToLibrary(id)) pushReader(id) else toast("Could not load that video.")
+                        }
+                    },
+                    openChannel = { url -> pushChannel(url) },
+                    openChannelOfVideo = { id ->
+                        scope.launch {
+                            val url = runCatching { ChannelSource.channelOfVideo(app.youtube, id) }.getOrNull()
+                            if (url == null) toast("Could not find the channel.") else pushChannel(url)
+                        }
+                    },
+                )
+            }
+
+            // A link from the YouTube app. It is handled here, not on the home screen, so it works
+            // whatever screen is open. A video goes straight to the reader.
+            var addLink by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+            androidx.compose.runtime.LaunchedEffect(incomingLink) {
+                val link = incomingLink ?: return@LaunchedEffect
+                onLinkConsumed()
+                val id = YouTube.extractId(link)
+                when {
+                    id != null -> nav.openVideo(id)
+                    ChannelSource.isChannelLink(link) -> nav.openChannel(link)
+                    else -> { while (stack.size > 1) stack.removeAt(stack.lastIndex); addLink = link }
+                }
+            }
+            CompositionLocalProvider(LocalNav provides nav) {
             // When the queue starts the next video, the open reader follows it.
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 app.advanced.collect { id ->
@@ -91,12 +151,13 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                 ) { screen ->
                     when (screen) {
                         Screen.Home -> HomeScreen(
-                            incoming = incomingLink,
-                            onConsumed = onLinkConsumed,
-                            onOpen = { stack.add(Screen.Reader(it)) },
+                            incoming = addLink,
+                            onConsumed = { addLink = null },
+                            onOpen = nav.openVideo,
                             onSettings = { stack.add(Screen.Settings) },
                         )
                         is Screen.Reader -> ReaderScreen(screen.id, onBack = { stack.removeAt(stack.lastIndex) })
+                        is Screen.Channel -> ChannelScreen(screen.url, onBack = { stack.removeAt(stack.lastIndex) })
                         Screen.Settings -> SettingsScreen(
                             onBack = { stack.removeAt(stack.lastIndex) },
                             onEditTemplate = { stack.add(Screen.Template(it)) },
@@ -105,6 +166,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                     }
                 }
             }
+            }
         }
     }
 }
@@ -112,6 +174,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
 private fun depth(s: Screen) = when (s) {
     Screen.Home -> 0
     is Screen.Reader -> 1
+    is Screen.Channel -> 1
     Screen.Settings -> 1
     is Screen.Template -> 2
 }

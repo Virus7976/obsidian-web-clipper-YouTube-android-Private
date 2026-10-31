@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
@@ -106,91 +107,38 @@ fun HomeScreen(
     val videos by app.library.videos.collectAsState()
     val player by app.player.state.collectAsState()
 
-    var input by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    var preview by remember { mutableStateOf<VideoMeta?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var addOpen by remember { mutableStateOf(false) }
+    var addInitial by remember { mutableStateOf<String?>(null) }
+    val subs by app.subscriptions.all.collectAsState()
+    val feed by app.feed.state.collectAsState()
+    val feedBusy by app.feed.busy.collectAsState()
+    val nav = LocalNav.current
 
     var tabRequest by remember { mutableStateOf<String?>(null) }
     var actionsFor by remember { mutableStateOf<String?>(null) }
     var actionsInPlaylist by remember { mutableStateOf(false) }
     var openPlaylist by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf(LibraryFilter()) }
-    var plPreview by remember { mutableStateOf<PlaylistImport.Result?>(null) }
-    var plListId by remember { mutableStateOf("") }
     val playlists by app.playlists.all.collectAsState()
     val queue by app.queue.ids.collectAsState()
 
-    fun importPlaylist(r: PlaylistImport.Result) {
-        val pid = "pl-" + plListId
-        val now = System.currentTimeMillis()
-        val ids = r.videos.map { it.id }
-        r.videos.forEach { m ->
-            if (app.library.get(m.id) == null) app.library.upsert(SavedVideo(meta = m, playlistId = pid, addedAt = now))
-        }
-        app.playlists.put(Playlist(pid, r.title, plListId, ids, now))
-        plPreview = null
-        input = ""
-        openPlaylist = pid
-        tabRequest = "playlists"
-    }
-
-    fun submit(text: String) {
-        if (PlaylistImport.isPlaylistLink(text)) {
-            val listId = PlaylistImport.listId(text)!!
-            loading = true
-            error = null
-            preview = null
-            scope.launch {
-                runCatching { PlaylistImport.fetch(app.youtube, listId) }
-                    .onSuccess { plListId = listId; plPreview = it }
-                    .onFailure { error = it.message ?: "Could not read that playlist." }
-                loading = false
-            }
-            return
-        }
-        val id = YouTube.extractId(text)
-        if (id == null) {
-            error = "That does not look like a YouTube link."
-            preview = null
-            return
-        }
-        loading = true
-        error = null
-        scope.launch {
-            runCatching { app.youtube.preview(id) }
-                .onSuccess { preview = it }
-                .onFailure {
-                    error = it.message ?: "Could not load that video."
-                    preview = null
-                }
-            loading = false
-        }
-    }
-
-    fun open(meta: VideoMeta) {
-        if (app.library.get(meta.id) == null) app.library.upsert(SavedVideo(meta = meta, addedAt = System.currentTimeMillis()))
-        preview = null
-        input = ""
-        onOpen(meta.id)
-    }
-
+    // A playlist link that came from the YouTube app opens the Add pop-up with it filled in.
     LaunchedEffect(incoming) {
         if (incoming != null) {
-            input = incoming
-            submit(incoming)
+            addInitial = incoming
+            addOpen = true
             onConsumed()
         }
     }
 
-    val visibleTabs = settings.homeTabs.filter { it in HomeTabs.keys }.ifEmpty { listOf("add") }
+    val visibleTabs = settings.homeTabs.filter { it in HomeTabs.keys }.ifEmpty { listOf("library") }
     var tab by remember { mutableStateOf(visibleTabs.first()) }
     if (tab !in visibleTabs) tab = visibleTabs.first()
     tabRequest?.let { if (it in visibleTabs) tab = it; tabRequest = null }
-    val showAdd = tab == "add" || visibleTabs.size == 1
     val showLibrary = tab == "library" || visibleTabs.size == 1
-    val showPlaylists = tab == "playlists"
+    val showFeed = tab == "feed"
     val showQueue = tab == "queue"
+    LaunchedEffect(tab, subs.size) { if (tab == "feed") app.feed.refresh() }
     var refreshing by remember { mutableStateOf(false) }
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
@@ -201,6 +149,7 @@ fun HomeScreen(
                 refreshing = true
                 settings.vaultFolders.keys.forEach { app.vaults.refresh(it, force = true) }
                 app.updates.check()
+                app.feed.refresh(force = true)
                 scope.launch { kotlinx.coroutines.delay(900); refreshing = false }
             },
             state = pullState,
@@ -227,6 +176,11 @@ fun HomeScreen(
                     Spacer(Modifier.width(10.dp))
                     Text("Marginalia", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.weight(1f))
+                    FilledTonalButton(onClick = { addInitial = null; addOpen = true }, shapes = ButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add")
+                    }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
             }
@@ -234,115 +188,15 @@ fun HomeScreen(
             if (visibleTabs.size > 1) item("tabs") {
                 FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     visibleTabs.forEach { id ->
-                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "playlists" -> playlists.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
+                        androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
                     }
                 }
             }
 
-            if (showAdd) item("hero") {
-                Surface(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp).fillMaxWidth(),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Paste a YouTube link", style = MaterialTheme.typography.headlineMedium)
-                        Text(
-                            "It opens as a transcript. Hold a line to highlight it.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            placeholder = { Text("youtube.com/watch?v=…") },
-                            shape = RoundedCornerShape(50),
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Go),
-                            keyboardActions = KeyboardActions(onGo = { submit(input) }),
-                            trailingIcon = {
-                                if (input.isNotEmpty()) {
-                                    IconButton(onClick = { input = ""; preview = null; error = null }) { Icon(Icons.Rounded.Close, "Clear") }
-                                }
-                            },
-                            colors = TextFieldDefaults.colors(),
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = {
-                                    val text = readClipboard(ctx)
-                                    if (text.isNullOrBlank()) error = "The clipboard is empty."
-                                    else {
-                                        input = text
-                                        submit(text)
-                                    }
-                                },
-                                shapes = ButtonDefaults.shapes(),
-                            ) {
-                                Icon(Icons.Rounded.ContentPaste, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Paste")
-                            }
-                            AnimatedVisibility(input.isNotBlank() && preview == null && !loading) {
-                                FilledTonalButton(onClick = { submit(input) }, shapes = ButtonDefaults.shapes()) { Text("Go") }
-                            }
-                        }
-                        AnimatedVisibility(loading) {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { LoadingIndicator() }
-                        }
-                        AnimatedVisibility(error != null) {
-                            Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-            }
-
-            if (showAdd) item("preview") {
-                AnimatedVisibility(
-                    visible = preview != null,
-                    enter = expandVertically(spring(0.7f, 380f)) + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    preview?.let { meta ->
-                        PreviewCard(
-                            meta = meta,
-                            pinPlayer = settings.pinPlayer,
-                            highlighting = settings.highlighterEnabled,
-                            onPin = { v -> app.settings.update { it.copy(pinPlayer = v) } },
-                            onHighlighting = { v -> app.settings.update { it.copy(highlighterEnabled = v) } },
-                            onOpen = { open(meta) },
-                            onDismiss = { preview = null },
-                        )
-                    }
-                }
-            }
-
-            if (showAdd) item("pl-preview") {
-                AnimatedVisibility(visible = plPreview != null) {
-                    plPreview?.let { r ->
-                        Surface(
-                            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp).fillMaxWidth(),
-                            shape = MaterialTheme.shapes.extraLarge,
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                        ) {
-                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(r.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text("${r.videos.size} videos. They go into a playlist. Your library stays clean.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Button(onClick = { importPlaylist(r) }, shapes = ButtonDefaults.shapes()) { Text("Import playlist") }
-                                    TextButton(onClick = { plPreview = null }) { Text("Not now") }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (showPlaylists) playlistsTab(
-                playlists = playlists, videos = videos, openId = openPlaylist,
-                onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen,
-                onMore = { actionsInPlaylist = true; actionsFor = it },
+            if (showFeed) feedTab(
+                subs = subs, feed = feed, busy = feedBusy, inLibrary = videos.map { it.meta.id }.toSet(),
+                onOpenVideo = onOpen, onOpenChannel = nav.openChannel,
+                onFind = { addInitial = null; addOpen = true },
             )
             if (showQueue) queueTab(
                 queue = queue, videos = videos, nowId = player.videoId, onOpenVideo = onOpen,
@@ -350,8 +204,25 @@ fun HomeScreen(
             )
 
             val libraryVideos = videos.filter { it.playlistId.isEmpty() }
+            val inPlaylist = showLibrary && openPlaylist != null && playlists.any { it.id == openPlaylist }
+            if (inPlaylist) playlistsTab(
+                playlists = playlists, videos = videos, openId = openPlaylist,
+                onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen,
+                onMore = { actionsInPlaylist = true; actionsFor = it },
+            )
             val resume = libraryVideos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }.take(10)
-            if (showLibrary && resume.isNotEmpty()) {
+            if (showLibrary && !inPlaylist && playlists.isNotEmpty()) {
+                item("pl-label") { SectionLabel("Playlists", trailing = "${playlists.size}") }
+                item("pl-row") {
+                    LazyRow(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(playlists, key = { "pc" + it.id }) { p -> PlaylistCard(p, videos) { openPlaylist = p.id } }
+                    }
+                }
+            }
+            if (showLibrary && !inPlaylist && resume.isNotEmpty()) {
                 item("resume-label") { SectionLabel("Pick up where you left off") }
                 item("resume") {
                     LazyRow(
@@ -364,12 +235,12 @@ fun HomeScreen(
             }
 
             val pinned = libraryVideos.filter { it.pinned }
-            if (showLibrary && pinned.isNotEmpty()) {
+            if (showLibrary && !inPlaylist && pinned.isNotEmpty()) {
                 item("pinned-label") { SectionLabel("Pinned") }
                 items(pinned, key = { "p" + it.meta.id }) { v -> VideoRow(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
             }
 
-            if (showLibrary) {
+            if (showLibrary && !inPlaylist) {
                 item("lib-label") {
                     SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} video${if (libraryVideos.size == 1) "" else "s"}")
                 }
@@ -394,6 +265,12 @@ fun HomeScreen(
             }
         }
         }
+
+        if (addOpen) AddSheet(
+            initial = addInitial,
+            onDismiss = { addOpen = false; addInitial = null },
+            onPlaylist = { openPlaylist = it; tabRequest = "library" },
+        )
 
         actionsFor?.let { id -> VideoActionsSheet(id, inPlaylist = actionsInPlaylist, onDismiss = { actionsFor = null }) }
 
@@ -607,9 +484,22 @@ private fun EmptyShelf() {
         }
         Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Paste a link above, or share one to Marginalia from the YouTube app.",
+            "Tap Add to paste a link or search YouTube. Or share a video to Marginalia from the YouTube app.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun PlaylistCard(p: Playlist, videos: List<SavedVideo>, onClick: () -> Unit) {
+    val first = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }
+    Column(Modifier.width(170.dp).clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick)) {
+        AsyncImage(
+            model = first?.meta?.thumb, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(20.dp)),
+        )
+        Text(p.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+        Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

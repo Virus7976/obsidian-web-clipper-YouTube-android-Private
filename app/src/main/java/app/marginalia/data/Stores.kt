@@ -15,7 +15,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 
-private val storeJson = Json {
+internal val storeJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
     prettyPrint = false
@@ -66,7 +66,9 @@ class SettingsStore(context: Context) : JsonFileStore<AppSettings>(File(context.
             s = s.copy(vaults = keep, vault = if (s.vault in keep) s.vault else keep.firstOrNull().orEmpty())
         }
         if (s.tabsVersion < 3) s = s.copy(lockStyle = "page", lockBackground = "black")
-        return s.copy(tabsVersion = 3)
+        // Adding a video is a pop-up now, and playlists live inside the library.
+        if (s.tabsVersion < 4) s = s.copy(homeTabs = listOf("library", "feed", "queue"))
+        return s.copy(tabsVersion = 4)
     }
 
     override fun encode(value: AppSettings) = storeJson.encodeToString(AppSettings.serializer(), value)

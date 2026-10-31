@@ -30,6 +30,10 @@ class MarginaliaApp : Application() {
         private set
     lateinit var queue: PlayQueue
         private set
+    lateinit var subscriptions: app.marginalia.data.Subscriptions
+        private set
+    lateinit var feed: app.marginalia.data.FeedStore
+        private set
     lateinit var audio: AudioCache
         private set
 
@@ -45,6 +49,8 @@ class MarginaliaApp : Application() {
         playlists = Playlists(this)
         queue = PlayQueue(settings)
         youtube = YouTube { settings.value }
+        subscriptions = app.marginalia.data.Subscriptions(this)
+        feed = app.marginalia.data.FeedStore(this, subscriptions, youtube)
         val finder = StreamFinder(youtube) { settings.value }
         audio = AudioCache(this, youtube, finder) { settings.value }
         player = PlayerHost(this, finder) { settings.value }
@@ -52,6 +58,14 @@ class MarginaliaApp : Application() {
         player.onEnded = ::playNextInQueue
         seedFromBundledClipperSettings()
         updates.checkIfDue()
+    }
+
+    /** Puts a video in the library if it is not there yet, reading its details first. False when it cannot be read. */
+    suspend fun addToLibrary(id: String): Boolean {
+        if (library.get(id) != null) return true
+        val meta = runCatching { youtube.preview(id) }.getOrNull() ?: return false
+        library.upsert(app.marginalia.data.SavedVideo(meta = meta, addedAt = System.currentTimeMillis()))
+        return true
     }
 
     /** Starts the next queued video. Skips ids that are no longer in the library. */

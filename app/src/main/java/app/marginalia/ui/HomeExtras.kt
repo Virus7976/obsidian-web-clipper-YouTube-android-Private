@@ -49,7 +49,7 @@ import androidx.compose.material3.MaterialTheme as M3
 import androidx.compose.ui.text.style.TextOverflow
 
 /** The tabs on the home screen. The order here is the order shown. */
-val HomeTabs = linkedMapOf("add" to "Add", "library" to "Library", "playlists" to "Playlists", "queue" to "Queue")
+val HomeTabs = linkedMapOf("library" to "Library", "feed" to "Feed", "queue" to "Queue")
 
 val LibraryLayouts = listOf("list" to "List", "grid" to "Grid", "compact" to "Compact")
 

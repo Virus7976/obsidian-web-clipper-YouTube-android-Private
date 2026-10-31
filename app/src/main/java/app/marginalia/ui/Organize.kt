@@ -214,6 +214,13 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, onDismiss: (
                 style = MaterialTheme.typography.bodySmall, color = scheme.error,
             )
 
+            val nav = LocalNav.current
+            androidx.compose.material3.TextButton(onClick = { nav.openChannelOfVideo(videoId); onDismiss() }) {
+                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Go to ${v.meta.author.ifBlank { "the channel" }}")
+            }
+
             // organize
             SectionTitle("Category")
             val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
@@ -399,7 +406,7 @@ private fun PlaylistRow(p: Playlist, videos: List<SavedVideo>, onClick: () -> Un
     }
 }
 
-private fun Modifier.androidxAspect(): Modifier = this.aspectRatio(16 / 9f)
+internal fun Modifier.androidxAspect(): Modifier = this.aspectRatio(16 / 9f)
 
 @Composable
 private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
@@ -409,7 +416,7 @@ private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
     val progress by app.audio.progress.collectAsState()
     var confirm by remember { mutableStateOf(false) }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = onBack) { Text("‹ All playlists") }
+        TextButton(onClick = onBack) { Text("‹ Library") }
         Text(p.title, style = MaterialTheme.typography.titleLarge)
         Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

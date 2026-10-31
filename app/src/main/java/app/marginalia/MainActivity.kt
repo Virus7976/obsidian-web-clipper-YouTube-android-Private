@@ -8,6 +8,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.marginalia.data.ChannelSource
+import app.marginalia.data.PlaylistImport
 import app.marginalia.data.YouTube
 import app.marginalia.ui.AppRoot
 
@@ -39,6 +41,9 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_VIEW -> intent.dataString
             else -> null
         } ?: return null
-        return YouTube.extractId(text)?.let { "https://www.youtube.com/watch?v=$it" }
+        YouTube.extractId(text)?.let { return "https://www.youtube.com/watch?v=$it" }
+        // A playlist or a channel shared from YouTube.
+        val url = ChannelSource.firstUrl(text) ?: text
+        return if (PlaylistImport.listId(text) != null || ChannelSource.isChannelLink(text)) url else null
     }
 }
