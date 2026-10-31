@@ -17,15 +17,20 @@ import app.marginalia.R
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /** Keeps playback alive in the background and draws the media notification. */
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
     /** When the screen goes off while audio plays, show the lock screen player (if it is turned on). */
     private val screenOff = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: Intent) {
             val app = application as MarginaliaApp
+            // You unlocked the phone yourself, so the touch lock is no longer needed.
+            if (intent.action == Intent.ACTION_USER_PRESENT) { app.player.setLocked(false); return }
             if (app.settings.value.lockScreen && app.player.state.value.playing) {
                 LockScreenActivity.launch(this@PlaybackService)
             }
@@ -35,16 +40,18 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         androidx.core.content.ContextCompat.registerReceiver(
-            this, screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+            this, screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_USER_PRESENT) },
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         val app = application as MarginaliaApp
         val highlight = SessionCommand(ACTION_HIGHLIGHT, Bundle.EMPTY)
         val back10 = SessionCommand(ACTION_BACK10, Bundle.EMPTY)
         val fwd10 = SessionCommand(ACTION_FWD10, Bundle.EMPTY)
+        val lock = SessionCommand(ACTION_LOCK, Bundle.EMPTY)
 
         // Back 10 and forward 10 take the back and forward slots, where "previous" and "next" would be.
         // Highlight goes in the extra slot. Play, pause and the seek bar are drawn by Android itself.
-        val buttons = ImmutableList.of(
+        fun buttons(locked: Boolean) = ImmutableList.of(
             // These are custom actions, the same kind as Highlight. Phone makers draw custom actions
             // on their media card, but they often skip the standard seek buttons.
             CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
@@ -63,13 +70,20 @@ class PlaybackService : MediaSessionService() {
                 .setSessionCommand(highlight)
                 .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
+            // Locking is one tap. Unlocking is not here on purpose: it is in the app, or when you unlock the phone.
+            CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                .setCustomIconResId(if (locked) R.drawable.ic_lock else R.drawable.ic_lock_open)
+                .setDisplayName(if (locked) "Locked. Open Marginalia to unlock" else "Lock the controls")
+                .setSessionCommand(lock)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
+                .build(),
         )
 
-        session = MediaSession.Builder(this, SkipPlayer(app.player.exo))
-            .setMediaButtonPreferences(buttons)
+        session = MediaSession.Builder(this, SkipPlayer(app.player.exo) { app.player.locked.value })
+            .setMediaButtonPreferences(buttons(app.player.locked.value))
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(highlight).add(back10).add(fwd10).build()
+                    val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(highlight).add(back10).add(fwd10).add(lock).build()
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(commands)
                         .build()
@@ -81,6 +95,9 @@ class PlaybackService : MediaSessionService() {
                     customCommand: SessionCommand,
                     args: Bundle,
                 ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == ACTION_LOCK) app.player.setLocked(true)
+                    // A locked phone ignores every other button here.
+                    if (app.player.locked.value) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     when (customCommand.customAction) {
                         ACTION_BACK10 -> app.player.skip(-10.0)
                         ACTION_FWD10 -> app.player.skip(10.0)
@@ -93,6 +110,8 @@ class PlaybackService : MediaSessionService() {
                 }
             })
             .build()
+        // Swap the lock button between open and closed.
+        scope.launch { app.player.locked.collect { session?.setMediaButtonPreferences(buttons(it)) } }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -108,6 +127,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(screenOff) }
+        scope.cancel()
         session?.release()
         session = null
         super.onDestroy()
@@ -117,11 +137,12 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_HIGHLIGHT = "app.marginalia.HIGHLIGHT"
         const val ACTION_BACK10 = "app.marginalia.BACK10"
         const val ACTION_FWD10 = "app.marginalia.FWD10"
+        const val ACTION_LOCK = "app.marginalia.LOCK"
     }
 }
 
 /** Shows back 10 and forward 10 where Android would show previous and next. */
-private class SkipPlayer(player: Player) : androidx.media3.common.ForwardingPlayer(player) {
+private class SkipPlayer(player: Player, private val locked: () -> Boolean) : androidx.media3.common.ForwardingPlayer(player) {
     private val removed = listOf(
         Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_NEXT,
         Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
@@ -135,6 +156,17 @@ private class SkipPlayer(player: Player) : androidx.media3.common.ForwardingPlay
 
     override fun isCommandAvailable(command: Int): Boolean =
         availableCommands.contains(command)
+
+    // With the touch lock on, nothing from outside the app can change playback.
+    override fun play() { if (!locked()) super.play() }
+    override fun pause() { if (!locked()) super.pause() }
+    override fun setPlayWhenReady(playWhenReady: Boolean) { if (!locked()) super.setPlayWhenReady(playWhenReady) }
+    override fun seekTo(positionMs: Long) { if (!locked()) super.seekTo(positionMs) }
+    override fun seekTo(mediaItemIndex: Int, positionMs: Long) { if (!locked()) super.seekTo(mediaItemIndex, positionMs) }
+    override fun seekBack() { if (!locked()) super.seekBack() }
+    override fun seekForward() { if (!locked()) super.seekForward() }
+    override fun stop() { if (!locked()) super.stop() }
+    override fun setPlaybackSpeed(speed: Float) { if (!locked()) super.setPlaybackSpeed(speed) }
 
     override fun seekToPrevious() = seekBack()
     override fun seekToNext() = seekForward()

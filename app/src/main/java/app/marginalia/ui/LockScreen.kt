@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Highlight
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Subtitles
@@ -91,6 +93,7 @@ private fun argb(c: Color, alpha: Float = c.alpha): Int =
 fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
     val s by app.settings.state.collectAsState()
     val ps by app.player.state.collectAsState()
+    val locked by app.player.locked.collectAsState()
     val videos by app.library.videos.collectAsState()
     val ctx = LocalContext.current
     val view = LocalView.current
@@ -322,10 +325,14 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        IconButton(onClick = onUnlock) { Icon(Icons.Rounded.LockOpen, "Unlock", tint = muted) }
-                        IconButton(onClick = { app.player.skip(-10.0) }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Replay10, "Back 10 seconds", Modifier.size(32.dp), tint = textColor) }
+                        IconButton(onClick = onUnlock, Modifier.size(48.dp)) { Icon(Icons.Rounded.LockOpen, "Unlock the phone", tint = muted) }
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            app.player.setLocked(true)
+                        }, Modifier.size(48.dp)) { Icon(Icons.Rounded.Lock, "Lock the controls", tint = muted) }
+                        IconButton(onClick = { app.player.skip(-10.0) }, Modifier.size(48.dp)) { Icon(Icons.Rounded.Replay10, "Back 10 seconds", Modifier.size(32.dp), tint = textColor) }
                         MorphingPlayButton(playing = ps.playing, onClick = { app.player.toggle() }, size = 64.dp, container = accent, content = if (s.lockAccent == "white") Color.Black else MaterialTheme.colorScheme.onPrimary)
-                        IconButton(onClick = { app.player.skip(10.0) }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds", Modifier.size(32.dp), tint = textColor) }
+                        IconButton(onClick = { app.player.skip(10.0) }, Modifier.size(48.dp)) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds", Modifier.size(32.dp), tint = textColor) }
                         if (s.lockHighlight) {
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
@@ -334,6 +341,38 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
                         } else Spacer(Modifier.size(48.dp))
                     }
                 }
+            }
+        }
+
+        if (locked) TouchLock(muted) { app.player.setLocked(false) }
+    }
+}
+
+/**
+ * Covers the whole lock screen and swallows every touch, so a phone in a pocket cannot skip, pause or
+ * highlight. Only a long press on the pill gets out.
+ */
+@Composable
+private fun TouchLock(muted: Color, onUnlock: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        Modifier.fillMaxSize().background(Color(0xF2000000))
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Rounded.Lock, null, Modifier.size(40.dp), tint = muted)
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                shape = RoundedCornerShape(24.dp), color = Color(0xFF1B1B1B),
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures(onLongPress = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onUnlock()
+                    })
+                },
+            ) {
+                Text("Hold to unlock", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), color = Color(0xFFE6E6E6), style = MaterialTheme.typography.labelLarge)
             }
         }
     }

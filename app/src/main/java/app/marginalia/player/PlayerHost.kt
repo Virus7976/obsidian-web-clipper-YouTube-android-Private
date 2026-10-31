@@ -67,6 +67,15 @@ class PlayerHost(
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
+    private val _locked = MutableStateFlow(false)
+
+    /**
+     * Touch lock, for a phone in a pocket. While it is on, the notification, the lock screen card and
+     * the headset buttons cannot pause, skip or seek. The screens in the app still work.
+     */
+    val locked: StateFlow<Boolean> = _locked.asStateFlow()
+    fun setLocked(on: Boolean) { _locked.value = on }
+
     private val http = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(15_000)
@@ -299,5 +308,6 @@ class PlayerHost(
         exo.clearMediaItems()
         main.removeCallbacks(poll)
         _state.value = PlayerState(speed = _state.value.speed)
+        _locked.value = false
     }
 }
