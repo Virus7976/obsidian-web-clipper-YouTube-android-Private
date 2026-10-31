@@ -1,6 +1,7 @@
 package app.marginalia.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -385,7 +386,7 @@ fun LazyListScope.playlistsTab(
     }
     item("pl-head") { PlaylistHeader(open, onBack = { onOpenPlaylist(null) }) }
     val inList = open.videoIds.mapNotNull { id -> videos.firstOrNull { it.meta.id == id } }
-    items(inList, key = { "plv" + it.meta.id }) { v -> QueueRow(v, onClick = { onOpenVideo(v.meta.id) }, trailing = { MoreButton { onMore(v.meta.id) } }) }
+    items(inList, key = { "plv" + it.meta.id }) { v -> QueueRow(v, onClick = { onOpenVideo(v.meta.id) }, onLongClick = { onMore(v.meta.id) }, trailing = { MoreButton { onMore(v.meta.id) } }) }
 }
 
 @Composable
@@ -470,11 +471,11 @@ private fun PlaylistHeader(p: Playlist, onBack: () -> Unit) {
 
 // ---------- queue tab ----------
 
-fun LazyListScope.queueTab(queue: List<String>, videos: List<SavedVideo>, nowId: String?, onOpenVideo: (String) -> Unit, onClear: () -> Unit, onRemove: (String) -> Unit) {
+fun LazyListScope.queueTab(queue: List<String>, videos: List<SavedVideo>, nowId: String?, onOpenVideo: (String) -> Unit, onClear: () -> Unit, onRemove: (String) -> Unit, onMore: (String) -> Unit) {
     val now = nowId?.let { id -> videos.firstOrNull { it.meta.id == id } }
     if (now != null) {
         item("q-now") { Text("Playing now", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleSmall) }
-        item("q-now-row") { QueueRow(now, onClick = { onOpenVideo(now.meta.id) }) }
+        item("q-now-row") { QueueRow(now, onClick = { onOpenVideo(now.meta.id) }, onLongClick = { onMore(now.meta.id) }) }
     }
     item("q-label") {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -492,17 +493,20 @@ fun LazyListScope.queueTab(queue: List<String>, videos: List<SavedVideo>, nowId:
         }
     }
     items(rows, key = { "q" + it.meta.id }) { v ->
-        androidx.compose.foundation.layout.Box(Modifier.animateItem()) { QueueRow(v, onClick = { onOpenVideo(v.meta.id) }, trailing = {
+        androidx.compose.foundation.layout.Box(Modifier.animateItem()) { QueueRow(v, onClick = { onOpenVideo(v.meta.id) }, onLongClick = { onMore(v.meta.id) }, trailing = {
             IconButton(onClick = { onRemove(v.meta.id) }) { Icon(Icons.Rounded.Close, "Remove from queue", tint = MaterialTheme.colorScheme.outline) }
         }) }
     }
 }
 
 @Composable
-fun QueueRow(v: SavedVideo, onClick: () -> Unit, trailing: @Composable () -> Unit = {}) {
+fun QueueRow(v: SavedVideo, onClick: () -> Unit, onLongClick: (() -> Unit)? = null, trailing: @Composable () -> Unit = {}) {
     val app = LocalApp.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().combinedClickable(onLongClick = onLongClick?.let { go ->
+            { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); go() }
+        }, onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(

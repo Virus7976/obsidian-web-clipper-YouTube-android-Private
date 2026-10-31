@@ -46,6 +46,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
     val app = LocalApp.current
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val subs by app.subscriptions.all.collectAsState()
     val library by app.library.videos.collectAsState()
     var opened by remember(url) { mutableStateOf<ChannelSource.Opened?>(null) }
@@ -54,6 +55,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
     var more by remember(url) { mutableStateOf(false) }
     var loadingMore by remember(url) { mutableStateOf(false) }
     var query by remember(url) { mutableStateOf("") }
+    var actionsFor by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(url) {
         runCatching { ChannelSource.open(app.youtube, url) }
@@ -61,6 +63,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
             .onFailure { error = "Could not open that channel. Check your connection." }
     }
 
+    actionsFor?.let { id -> VideoActionsSheet(id, onDismiss = { actionsFor = null }) }
     val inLibrary = remember(library) { library.map { it.meta.id }.toSet() }
     val o = opened
     Box(Modifier.fillMaxSize()) {
@@ -106,7 +109,7 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
                         )
                     }
                 }
-                item("search") { SearchField(query, { query = it }, "Search ${o.channel.name}") }
+                item("search") { SearchField(query, { query = it }, "Search this channel") }
                 val shown = if (query.isBlank()) videos else videos.filter { matchesQuery(query, it.meta.title) }
                 if (query.isNotBlank() && more) item("searching") {
                     Text(
@@ -115,7 +118,13 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
                     )
                 }
                 items(shown, key = { "cv" + it.meta.id }) { v ->
-                    ChannelVideoRow(v, showChannel = false, saved = v.meta.id in inLibrary) { nav.openVideo(v.meta.id) }
+                    val options: () -> Unit = { scope.launch { if (app.addToLibrary(v.meta.id)) actionsFor = v.meta.id } }
+                    ChannelVideoRow(
+                        v, showChannel = false, saved = v.meta.id in inLibrary,
+                        onOptions = options,
+                        onQueue = { scope.launch { if (app.addToLibrary(v.meta.id)) { app.queue.add(v.meta.id); android.widget.Toast.makeText(ctx, "Added to the queue.", android.widget.Toast.LENGTH_SHORT).show() } } },
+                        onLongClick = options,
+                    ) { nav.openVideo(v.meta.id) }
                 }
                 if (shown.isEmpty() && !more) item("none") {
                     Text(if (query.isBlank()) "No videos found on this channel." else "No video matches \"$query\".", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)

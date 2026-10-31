@@ -2,6 +2,7 @@ package app.marginalia.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -141,6 +142,7 @@ fun LazyListScope.feedTab(
             avatar = subs.firstOrNull { it.url == v.channelUrl }?.avatar.orEmpty(),
             progress = frac,
             onOptions = { onOptions(v.meta.id) }, onQueue = { onQueue(v.meta.id) },
+            onLongClick = { onOptions(v.meta.id) },
         ) { onOpenVideo(v.meta.id) }
     }
 }
@@ -158,10 +160,14 @@ fun ChannelVideoRow(
     progress: Float = 0f,
     onOptions: (() -> Unit)? = null,
     onQueue: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().combinedClickable(onLongClick = onLongClick?.let { go ->
+            { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); go() }
+        }, onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Box(Modifier.width(168.dp)) {

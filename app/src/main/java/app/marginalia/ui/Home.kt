@@ -109,7 +109,7 @@ fun HomeScreen(
 
     var addOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
-    var showPinned by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf<String?>(null) }
     var feedFilter by remember { mutableStateOf("all") }
     var addInitial by remember { mutableStateOf<String?>(null) }
     val subs by app.subscriptions.all.collectAsState()
@@ -142,12 +142,12 @@ fun HomeScreen(
     val showFeed = tab == "feed"
     val showQueue = tab == "queue"
     LaunchedEffect(tab, subs.size) { if (tab == "feed") app.feed.refresh() }
-    LaunchedEffect(tab) { query = ""; showPinned = false }
-    androidx.activity.compose.BackHandler(enabled = query.isNotEmpty() || showPinned || openPlaylist != null) {
+    LaunchedEffect(tab) { query = ""; page = null }
+    androidx.activity.compose.BackHandler(enabled = query.isNotEmpty() || page != null || openPlaylist != null) {
         when {
             query.isNotEmpty() -> query = ""
-            showPinned -> showPinned = false
-            else -> openPlaylist = null
+            openPlaylist != null -> openPlaylist = null
+            else -> page = null
         }
     }
     var refreshing by remember { mutableStateOf(false) }
@@ -211,7 +211,7 @@ fun HomeScreen(
                         showFeed -> "Search the feed"
                         showQueue -> "Search the queue"
                         openPlaylist != null -> "Search this playlist"
-                        else -> "Search titles, channels, tags, highlights"
+                        else -> "Search your library"
                     },
                 )
             }
@@ -234,6 +234,7 @@ fun HomeScreen(
                 queue = if (query.isBlank()) queue else queue.filter { id -> videos.firstOrNull { it.meta.id == id }?.matchesQuery(query) == true },
                 videos = videos, nowId = if (query.isBlank()) player.videoId else null, onOpenVideo = onOpen,
                 onClear = { app.queue.clear() }, onRemove = { app.queue.remove(it) },
+                onMore = { actionsInPlaylist = false; actionsFor = it },
             )
 
             val libraryVideos = videos.filter { it.playlistId.isEmpty() }
@@ -244,61 +245,57 @@ fun HomeScreen(
                 onMore = { actionsInPlaylist = true; actionsFor = it },
             )
             val searching = query.isNotBlank()
-            val browsing = showLibrary && !inPlaylist && !searching && !showPinned
-            val resume = libraryVideos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }.take(10)
-            if (browsing && playlists.isNotEmpty()) {
-                item("pl-label") { SectionLabel("Playlists", trailing = "${playlists.size}") }
-                item("pl-row") {
-                    LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(playlists, key = { "pc" + it.id }) { p -> PlaylistCard(p, videos) { openPlaylist = p.id } }
-                    }
-                }
-            }
-            if (browsing && resume.isNotEmpty()) {
-                item("resume-label") { SectionLabel("Pick up where you left off") }
-                item("resume") {
-                    LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(resume, key = { "r" + it.meta.id }) { v -> ResumeCard(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
-                    }
-                }
-            }
-
+            val browsing = showLibrary && !inPlaylist && !searching && page == null
+            val resumeAll = libraryVideos.filter { it.positionSec > 5 && (it.meta.durationSec == 0 || it.positionSec < it.meta.durationSec - 10) }
             val pinned = libraryVideos.filter { it.pinned }
-            if (browsing && pinned.isNotEmpty()) {
-                item("pinned-label") {
-                    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Pinned", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                        TextButton(onClick = { showPinned = true }) { Text("See all ${pinned.size}") }
-                    }
-                }
-                item("pinned") {
-                    LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(pinned.take(12), key = { "pn" + it.meta.id }) { v -> PinnedCard(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
+            val onMoreVideo: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
+            val rowPad = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
+            if (browsing && playlists.isNotEmpty()) {
+                item("pl-label") { SectionHeader("Playlists", playlists.size) { page = "playlists" } }
+                item("pl-row") {
+                    LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(playlists.take(12), key = { "pc" + it.id }) { p -> PlaylistCard(p, videos) { openPlaylist = p.id } }
                     }
                 }
             }
-            if (showLibrary && !inPlaylist && showPinned) {
-                item("pinned-head") {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        TextButton(onClick = { showPinned = false }) { Text("‹ Library") }
-                        Text("Pinned · ${pinned.size}", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.titleLarge)
+            if (browsing && resumeAll.isNotEmpty()) {
+                item("resume-label") { SectionHeader("Pick up where you left off", resumeAll.size) { page = "resume" } }
+                item("resume") {
+                    LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(resumeAll.take(12), key = { "r" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, showProgress = true) { onOpen(v.meta.id) } }
                     }
                 }
-                val shownPins = pinned.filter { it.matchesQuery(query) }
-                if (shownPins.isEmpty()) item("pinned-none") { Text("Nothing pinned matches.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(shownPins, key = { "pv" + it.meta.id }) { v -> VideoRow(v, { actionsInPlaylist = false; actionsFor = it }) { onOpen(v.meta.id) } }
+            }
+            if (browsing && pinned.isNotEmpty()) {
+                item("pinned-label") { SectionHeader("Pinned", pinned.size) { page = "pinned" } }
+                item("pinned") {
+                    LazyRow(contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(pinned.take(12), key = { "pn" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, pinned = true) { onOpen(v.meta.id) } }
+                    }
+                }
+            }
+            if (showLibrary && !inPlaylist && page != null) {
+                val pageTitle = when (page) { "playlists" -> "Playlists"; "resume" -> "Pick up where you left off"; else -> "Pinned" }
+                val pageCount = when (page) { "playlists" -> playlists.size; "resume" -> resumeAll.size; else -> pinned.size }
+                item("page-head") {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        TextButton(onClick = { page = null }) { Text("‹ Library") }
+                        Text("$pageTitle · $pageCount", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+                if (page == "playlists") {
+                    playlistsTab(
+                        playlists = playlists.filter { matchesQuery(query, it.title) }, videos = videos, openId = null,
+                        onOpenPlaylist = { openPlaylist = it }, onOpenVideo = onOpen, onMore = { actionsInPlaylist = true; actionsFor = it },
+                    )
+                } else {
+                    val list = (if (page == "pinned") pinned else resumeAll).filter { it.matchesQuery(query) }
+                    if (list.isEmpty()) item("page-none") { Text("Nothing here matches.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    items(list, key = { "pg" + it.meta.id }) { v -> VideoRow(v, onMoreVideo) { onOpen(v.meta.id) } }
+                }
             }
 
-            if (showLibrary && !inPlaylist && !showPinned) {
+            if (showLibrary && !inPlaylist && page == null) {
                 item("lib-label") {
                     SectionLabel("Library", trailing = if (libraryVideos.isEmpty()) null else "${libraryVideos.size} video${if (libraryVideos.size == 1) "" else "s"}")
                 }
@@ -453,38 +450,6 @@ private fun PreviewCard(
 private val Color_scrim = androidx.compose.ui.graphics.Color(0xB3000000)
 
 @Composable
-private fun ResumeCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val source = remember { MutableInteractionSource() }
-    val radius = pressedRadius(source, 28.dp, 12.dp)
-    Column(
-        Modifier.width(220.dp).springPress(source).combinedClickable(source, null, onLongClick = {
-            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
-        }, onClick = onClick),
-    ) {
-        Box {
-            AsyncImage(
-                model = v.meta.thumb,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(radius)),
-            )
-            if (v.meta.durationSec > 0) {
-                val frac = (v.positionSec / v.meta.durationSec).toFloat().coerceIn(0f, 1f)
-                Box(
-                    Modifier.align(Alignment.BottomStart).padding(12.dp).fillMaxWidth().height(5.dp)
-                        .clip(CircleShape).background(androidx.compose.ui.graphics.Color(0x66000000)),
-                ) {
-                    Box(Modifier.fillMaxWidth(frac).height(5.dp).background(MaterialTheme.colorScheme.primary))
-                }
-            }
-        }
-        Text(v.meta.title, Modifier.padding(top = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-        Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
 private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val app = LocalApp.current
@@ -555,23 +520,23 @@ private fun EmptyShelf() {
 @Composable
 private fun PlaylistCard(p: Playlist, videos: List<SavedVideo>, onClick: () -> Unit) {
     val first = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }
-    Column(Modifier.width(170.dp).clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick)) {
+    Column(Modifier.width(168.dp).clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick)) {
         AsyncImage(
             model = first?.meta?.thumb, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(20.dp)),
+            modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
         )
         Text(p.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
         Text("${p.videoIds.size} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-/** A pinned video, small enough that several fit on the screen and you swipe for the rest. */
+/** One video as a card. Every sideways row uses it, so everything is one size. */
 @Composable
-private fun PinnedCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
+private fun VideoCard(v: SavedVideo, onMore: (String) -> Unit, pinned: Boolean = false, showProgress: Boolean = false, onClick: () -> Unit) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val source = remember { MutableInteractionSource() }
     Column(
-        Modifier.width(160.dp).springPress(source).combinedClickable(source, null, onLongClick = {
+        Modifier.width(168.dp).springPress(source).combinedClickable(source, null, onLongClick = {
             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
         }, onClick = onClick),
     ) {
@@ -580,12 +545,28 @@ private fun PinnedCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> U
                 model = v.meta.thumb, contentDescription = null, contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
             )
-            Icon(
+            if (pinned) Icon(
                 Icons.Rounded.PushPin, null, Modifier.align(Alignment.TopStart).padding(8.dp).size(16.dp),
                 tint = androidx.compose.ui.graphics.Color.White,
             )
+            if (showProgress && v.meta.durationSec > 0) {
+                val frac = (v.positionSec / v.meta.durationSec).toFloat().coerceIn(0f, 1f)
+                Box(
+                    Modifier.align(Alignment.BottomStart).padding(10.dp).fillMaxWidth().height(4.dp)
+                        .clip(CircleShape).background(androidx.compose.ui.graphics.Color(0x66000000)),
+                ) { Box(Modifier.fillMaxWidth(frac).height(4.dp).background(MaterialTheme.colorScheme.primary)) }
+            }
         }
         Text(v.meta.title, Modifier.padding(top = 6.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
         Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A section title with a See all button that opens that section on its own page. */
+@Composable
+private fun SectionHeader(title: String, count: Int, onSeeAll: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        TextButton(onClick = onSeeAll) { Text("See all $count") }
     }
 }
