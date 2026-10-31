@@ -50,6 +50,9 @@ class MarginaliaApp : Application() {
     /** Set when the review reminder was tapped. The app opens Review and clears it. */
     val openReview = kotlinx.coroutines.flow.MutableStateFlow(false)
 
+    /** Set when the media notification was tapped. The app opens the playing video and clears it. */
+    val openNowPlaying = kotlinx.coroutines.flow.MutableStateFlow(false)
+
     /** Fires with the video id when the queue starts the next video by itself. */
     val advanced = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
 

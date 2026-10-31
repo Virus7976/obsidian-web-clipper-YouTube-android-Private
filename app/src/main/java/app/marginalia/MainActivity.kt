@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
         app.player.connectService(this)
         incoming = linkFrom(intent)
         if (intent?.getBooleanExtra(ReviewReminder.EXTRA_REVIEW, false) == true) app.openReview.value = true
+        if (intent?.getBooleanExtra(EXTRA_NOW_PLAYING, false) == true) app.openNowPlaying.value = true
         setContent {
             AppRoot(app, incoming) { incoming = null }
         }
@@ -43,7 +44,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(ReviewReminder.EXTRA_REVIEW, false)) (application as MarginaliaApp).openReview.value = true
+        if (intent.getBooleanExtra(EXTRA_NOW_PLAYING, false)) (application as MarginaliaApp).openNowPlaying.value = true
         linkFrom(intent)?.let { incoming = it }
+    }
+
+    companion object {
+        const val EXTRA_NOW_PLAYING = "app.marginalia.NOW_PLAYING"
     }
 
     /** A link shared from the YouTube app, or tapped anywhere on the phone. */

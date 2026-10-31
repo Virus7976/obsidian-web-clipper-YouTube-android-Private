@@ -12,6 +12,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import app.marginalia.LockScreenActivity
+import app.marginalia.MainActivity
 import app.marginalia.MarginaliaApp
 import app.marginalia.R
 import com.google.common.collect.ImmutableList
@@ -85,7 +86,16 @@ class PlaybackService : MediaSessionService() {
             )
         }.build()
 
+        // Tapping the notification opens the video that is playing.
+        val open = android.app.PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_NOW_PLAYING, true)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         session = MediaSession.Builder(this, SkipPlayer(app.player.exo) { app.player.locked.value })
+            .setSessionActivity(open)
             .setMediaButtonPreferences(buttons(app.player.locked.value, app.player.phoneLocked.value))
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {

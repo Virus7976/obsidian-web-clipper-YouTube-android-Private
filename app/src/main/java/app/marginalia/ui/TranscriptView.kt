@@ -161,7 +161,11 @@ class TranscriptView(context: Context) : ScrollView(context) {
         // The reader dragged the text away from the spoken word: stop following and offer to sync.
         val now = SystemClock.uptimeMillis()
         if (now >= glidingUntil && now - lastTouch < 1500 && activeIdx >= 0) setPaused(true)
+        if (now >= glidingUntil && now - lastTouch < 1500) onUserScroll(t - oldt, t == 0)
     }
+
+    /** Called when a finger moved the text: by how much, and whether it is now at the very top. */
+    var onUserScroll: (Int, Boolean) -> Unit = { _, _ -> }
 
     /** Our own scrolling (a glide back, or following along) is not the reader scrolling away. */
     private var glidingUntil = 0L

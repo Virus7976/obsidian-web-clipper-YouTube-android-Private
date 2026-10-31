@@ -114,6 +114,11 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
             androidx.compose.runtime.LaunchedEffect(wantReview) {
                 if (wantReview) { app.openReview.value = false; nav.openReview() }
             }
+            // The media notification opens the video that is playing.
+            val wantPlaying by app.openNowPlaying.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(wantPlaying) {
+                if (wantPlaying) { app.openNowPlaying.value = false; app.player.state.value.videoId?.let(nav.openVideo) }
+            }
             // When the queue starts the next video, the open reader follows it.
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 app.advanced.collect { id ->
