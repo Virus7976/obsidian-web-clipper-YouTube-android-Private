@@ -120,7 +120,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
     // a screen shows when it is open, or, while searching, when it matches
     fun show(id: String, words: String) = if (query.isBlank()) page == id else hit(words)
     val menu = listOf(
-        SettingsEntry("look", "Look", "Theme, colours, home layout", Icons.Rounded.Palette),
+        SettingsEntry("look", "Look", "App icon, theme, home layout", Icons.Rounded.Palette),
         SettingsEntry("reading", "Reading", "Font, text size, the player", Icons.Rounded.MenuBook),
         SettingsEntry("highlights", "Highlights", "How words are marked and saved", Icons.Rounded.BorderColor),
         SettingsEntry("obsidian", "Obsidian", "Vaults, templates, what a clip adds", Icons.Rounded.Description),
@@ -174,6 +174,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalGroupTitles provides query.isNotBlank()) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -231,6 +232,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
 
             // ---------- look ----------
             if (show("look", SettingsKeys.look)) item { Group("Look") {
+                AppIconPicker()
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     androidx.compose.foundation.lazy.LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -687,13 +689,14 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
         StatusBarScrim()
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp))
     }
+    }
 }
 
 private class SettingsEntry(val id: String, val title: String, val hint: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
 /** Every setting name in each section, so the search box can find a section by what is inside it. */
 private object SettingsKeys {
-    const val look = "look theme palette palettes make colour color appearance auto light dusk dark oled accent home tabs add library layout list grid compact pull refresh pixel ghost heart star invader motion calm lively playful corner roundness"
+    const val look = "look app icon logo purple amethyst ruby sapphire emerald amber classic theme palette palettes make colour color appearance auto light dusk dark oled accent home tabs add library layout list grid compact pull refresh pixel ghost heart star invader motion calm lively playful corner roundness"
     const val reading = "reading font serif sans system custom own text size line height width length short medium long pin player mark current line follow along scroll timestamps"
     const val highlights = "highlights highlight highlighter always show replace content holding word selects sentence paragraph in the note obsidian plain text syntax layout each quote callout bullet inline"
     const val updates = "updates update version install installer android shizuku wireless adb pair pairing code port check on its own sources github repo token mirror skip release"
@@ -909,10 +912,13 @@ private fun UpdateGroup(s: app.marginalia.data.AppSettings, set: ((app.marginali
 
 // ---------- building blocks ----------
 
+/** A page already has its name at the top. Only search results, from many pages, need one on each group. */
+private val LocalGroupTitles = androidx.compose.runtime.compositionLocalOf { true }
+
 @Composable
 private fun Group(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(title, Modifier.padding(start = 6.dp, bottom = 8.dp, top = 12.dp), style = MaterialTheme.typography.titleLarge)
+        if (LocalGroupTitles.current) Text(title, Modifier.padding(start = 6.dp, bottom = 8.dp, top = 12.dp), style = MaterialTheme.typography.titleLarge)
         Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
         }
