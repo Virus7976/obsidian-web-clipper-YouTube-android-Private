@@ -124,11 +124,31 @@ fun ReviewScreen(onBack: () -> Unit) {
             val h = item.highlight
             val bar = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), contentAlignment = Alignment.Center) {
+                // A quiet cue behind the card: a check on the left for keep, a cross on the right for drop.
+                // It fades in as you drag and fills in when letting go would count.
+                val pull = (abs(offset.value) / (width * 0.28f)).coerceIn(0f, 1f)
+                val armed = pull >= 1f
+                val keeping = offset.value > 0f
+                androidx.compose.runtime.LaunchedEffect(armed) {
+                    if (armed) haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                }
+                if (pull > 0.02f) Box(
+                    Modifier.align(if (keeping) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 14.dp)
+                        .graphicsLayer { alpha = pull; scaleX = 0.6f + 0.4f * pull; scaleY = 0.6f + 0.4f * pull }
+                        .size(52.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(if (armed) (if (keeping) scheme.primary else scheme.onSurfaceVariant) else scheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (keeping) Icons.Rounded.Check else Icons.Rounded.Close, null, Modifier.size(24.dp),
+                        tint = if (armed) (if (keeping) scheme.onPrimary else scheme.surface) else scheme.onSurfaceVariant,
+                    )
+                }
                 Surface(
                     shape = RoundedCornerShape(28.dp), color = scheme.surfaceContainer,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer { translationX = offset.value; rotationZ = offset.value / 40f }
+                        .graphicsLayer { translationX = offset.value; rotationZ = offset.value / 40f; alpha = 1f - 0.2f * pull }
                         .pointerInput(at) {
                             detectHorizontalDragGestures(
                                 onDragEnd = {
