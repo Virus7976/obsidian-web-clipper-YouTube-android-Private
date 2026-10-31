@@ -92,7 +92,13 @@ data class SavedVideo(
     val notePath: String = "",
     /** What was filled in the last time this video was clipped. It comes back next time. */
     val lastClip: ClipMemo? = null,
+    /** When you finished it, by hand or by watching it to the end. 0 means not done. */
+    val doneAt: Long = 0L,
+    /** Last time it played, so what you just watched comes first. */
+    val playedAt: Long = 0L,
 ) {
+    val done: Boolean get() = doneAt > 0
+
     /** Where to start. A video you finished starts over, so it does not end again in a few seconds. */
     val resumeSec: Double
         get() = if (meta.durationSec > 0 && positionSec >= meta.durationSec - 10) 0.0 else positionSec
@@ -153,6 +159,7 @@ data class AppSettings(
     val librarySort: String = "recent", // recent | added | title | author | highlights
     /** The library sort runs the other way. */
     val librarySortReversed: Boolean = false,
+    val hideDone: Boolean = false,
     /** Bumped when new home tabs ship, so the tabs show up for people who changed the list. */
     val tabsVersion: Int = 0,
     /** Video ids waiting to play, in order. */

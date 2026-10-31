@@ -115,6 +115,8 @@ fun LibraryControls(
     onSort: (String) -> Unit,
     filter: LibraryFilter,
     onFilter: (LibraryFilter) -> Unit,
+    hideDone: Boolean,
+    onHideDone: (Boolean) -> Unit,
 ) {
     val categories = videos.map { it.category }.filter { it.isNotBlank() }.groupingBy { it.lowercase() }.eachCount()
     val names = videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedByDescending { categories[it.lowercase()] ?: 0 }
@@ -139,6 +141,10 @@ fun LibraryControls(
                     }
                 }
             }
+        }
+        // Only worth a chip once something is done.
+        if (videos.any { it.done }) item("done") {
+            FilterChip(selected = hideDone, onClick = { onHideDone(!hideDone) }, label = { Text("Hide done") })
         }
         if (filter.active) item("clear") {
             FilterChip(selected = true, onClick = { onFilter(LibraryFilter()) }, label = { Text("Clear filter") },
@@ -280,6 +286,10 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
 
             val nav = LocalNav.current
             GroupCard {
+                ListRow(Icons.Rounded.CheckCircle, if (v.done) "Mark as not done" else "Mark as done", if (v.done) scheme.primary else scheme.onSurface) {
+                    act { app.setDone(videoId, !v.done); onDismiss() }
+                }
+                RowDivider()
                 // A row you can only fail with is not offered. It shows up once there is a note to open.
                 if (videoNote(app, v) != null) {
                     ListRow(Icons.Rounded.Description, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
@@ -670,6 +680,16 @@ fun QueueRow(v: SavedVideo, onClick: () -> Unit, onLongClick: (() -> Unit)? = nu
 
 /** Used by the settings search and the home screen to describe the sort in words. */
 fun AppSettings.sortLabel() = LibrarySorts.firstOrNull { it.first == librarySort }?.second ?: "Recent"
+
+/** A small, plain mark on a video you finished. */
+@Composable
+fun DoneBadge() {
+    val tone = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Rounded.CheckCircle, null, Modifier.size(14.dp), tint = tone)
+        Text("Done", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelMedium, color = tone)
+    }
+}
 
 /** A small, plain line that says where a video's audio stands: on the phone, saving, or failed. */
 @Composable

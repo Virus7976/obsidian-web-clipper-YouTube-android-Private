@@ -115,9 +115,11 @@ fun VideoGridRow(pair: List<SavedVideo>, onOpen: (String) -> Unit, onMore: (Stri
                 AsyncImage(
                     model = v.meta.thumb, contentDescription = null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
+                    alpha = if (v.done) 0.5f else 1f,
                 )
                 Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (v.done) DoneBadge()
             }
         }
         if (pair.size == 1) Spacer(Modifier.weight(1f))
@@ -135,6 +137,10 @@ fun VideoCompactRow(v: SavedVideo, onOpen: (String) -> Unit, onMore: (String) ->
         Column(Modifier.weight(1f)) {
             Text(v.meta.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
             Text(v.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (v.done) {
+            Spacer(Modifier.width(8.dp))
+            DoneBadge()
         }
         if (v.highlights.isNotEmpty()) {
             Spacer(Modifier.width(8.dp))

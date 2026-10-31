@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.foundation.clickable
@@ -417,6 +418,12 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     onClick = { menu = false; immersive = true },
                 )
                 androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                DropdownMenuItem(
+                    text = { Text("Mark as done") },
+                    leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.CheckCircle, null) },
+                    trailingIcon = { if (video.done) Icon(Icons.Rounded.Check, "On", tint = scheme.primary) },
+                    onClick = { app.setDone(videoId, !video.done) },
+                )
                 DropdownMenuItem(
                     text = { Text("About this video") },
                     leadingIcon = { Icon(Icons.Rounded.Description, null) },

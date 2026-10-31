@@ -74,7 +74,7 @@ class MarginaliaApp : Application() {
         player.cache = audio
         player.onEnded = { player.state.value.videoId?.let { markWatched(it); autoClip(it) }; playNextInQueue() }
         player.onWatched = { markWatched(it); autoClip(it) }
-        player.onPosition = { id, sec -> library.edit(id) { it.copy(positionSec = sec) } }
+        player.onPosition = { id, sec -> library.edit(id) { it.copy(positionSec = sec, playedAt = System.currentTimeMillis()) } }
         // The reminder alarm follows the settings.
         appScope.launch {
             settings.state.map { it.reviewReminder to it.reviewHour }.distinctUntilChanged().collect { (on, hour) ->
@@ -115,8 +115,15 @@ class MarginaliaApp : Application() {
         library.remove(id)
     }
 
-    /** A video was watched to the end. It leaves every playlist that is set to drop watched videos. */
+    /** Done by hand. It works like watching to the end, and a finished video has no place in the queue. */
+    fun setDone(id: String, done: Boolean) {
+        if (done) { markWatched(id); queue.remove(id) }
+        else library.edit(id) { it.copy(doneAt = 0L) }
+    }
+
+    /** A video was watched to the end. It counts as done, and leaves every playlist that is set to drop watched videos. */
     fun markWatched(id: String) {
+        library.edit(id) { if (it.done) it else it.copy(doneAt = System.currentTimeMillis()) }
         playlists.all.value.filter { it.removeWhenWatched && id in it.videoIds }.forEach { p ->
             playlists.removeVideo(p.id, id)
             // An imported playlist hides its videos from the library. Let this one go there.

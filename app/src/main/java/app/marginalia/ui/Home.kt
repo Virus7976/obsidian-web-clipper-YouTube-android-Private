@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -165,6 +166,17 @@ fun HomeScreen(
     OnChanged("$tab|$query") { listState.scrollToItem(0) }
     var refreshing by remember { mutableStateOf(false) }
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    // Every way of marking a video lands here, so each one can be undone the same way.
+    fun toggleDone(id: String) {
+        val was = videos.firstOrNull { it.meta.id == id }?.done ?: return
+        app.setDone(id, !was)
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            val r = snackbar.showSnackbar(if (was) "Marked as not done" else "Marked as done", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+            if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) app.setDone(id, was)
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         androidx.compose.material3.pulltorefresh.PullToRefreshBox(
@@ -213,19 +225,16 @@ fun HomeScreen(
             val searching = query.isNotBlank()
             val browsing = showLibrary && !inPlaylist && !searching && page == null
             // What is playing now is in the bar at the bottom already.
-            val resumeAll = libraryVideos.filter { it.positionSec > 5 && it.resumeSec > 0.0 && it.meta.id != nowId }
+            val resumeAll = libraryVideos.filter { !it.done && it.positionSec > 5 && it.resumeSec > 0.0 && it.meta.id != nowId }.sortedByDescending { maxOf(it.playedAt, it.updatedAt) }
             val pinned = libraryVideos.filter { it.pinned }
             val onMoreVideo: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
             val rowPad = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
 
-            // First the thing you most likely came back for.
+            // First the thing you most likely came back for. One list, one shape: three rows you can scan, and the rest behind See all.
             if (browsing && resumeAll.isNotEmpty()) {
-                item("resume-label") { SectionHeader("Pick up where you left off", resumeAll.size) { page = "resume" } }
-                item("resume-next") { ContinueCard(resumeAll.first(), onMoreVideo) { onOpen(resumeAll.first().meta.id) } }
-                if (resumeAll.size > 1) item("resume") {
-                    LazyRow(Modifier.padding(top = 8.dp), contentPadding = rowPad, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(resumeAll.drop(1).take(12), key = { "r" + it.meta.id }) { v -> VideoCard(v, onMoreVideo, showProgress = true) { onOpen(v.meta.id) } }
-                    }
+                item("resume-label") { SectionHeader("Pick up where you left off", resumeAll.size, limit = 3) { page = "resume" } }
+                items(resumeAll.take(3), key = { "r" + it.meta.id }) { v ->
+                    androidx.compose.foundation.layout.Box(Modifier.animateItem()) { ContinueRow(v, onMoreVideo, ::toggleDone) { onOpen(v.meta.id) } }
                 }
             }
 
@@ -351,10 +360,11 @@ fun HomeScreen(
                         // The sort that is on reverses. A new one starts the normal way round.
                         onSort = { s -> app.settings.update { it.copy(librarySort = s, librarySortReversed = s == it.librarySort && !it.librarySortReversed) } },
                         filter = filter, onFilter = { filter = it },
+                        hideDone = settings.hideDone, onHideDone = { on -> app.settings.update { it.copy(hideDone = on) } },
                     )
                 }
                 val everything = searching || filter.category != null || filter.tag != null
-                val shown = libraryVideos.filter { (everything || !it.pinned) && filter.matches(it) && it.matchesQuery(query) }.sortedBy(settings.librarySort, settings.librarySortReversed)
+                val shown = libraryVideos.filter { (everything || !it.pinned) && (!settings.hideDone || !it.done) && filter.matches(it) && it.matchesQuery(query) }.sortedBy(settings.librarySort, settings.librarySortReversed)
                 val more: (String) -> Unit = { actionsInPlaylist = false; actionsFor = it }
                 if (libraryVideos.isEmpty()) {
                     item("empty") { EmptyShelf() }
@@ -365,7 +375,7 @@ fun HomeScreen(
                 } else when (settings.libraryLayout) {
                     "grid" -> items(shown.chunked(2), key = { "g" + it.first().meta.id }) { pair -> VideoGridRow(pair, onOpen, more) }
                     "compact" -> items(shown, key = { "c" + it.meta.id }) { v -> VideoCompactRow(v, onOpen, more) }
-                    else -> items(shown, key = { "v" + it.meta.id }) { v -> androidx.compose.foundation.layout.Box(Modifier.animateItem()) { VideoRow(v, more) { onOpen(v.meta.id) } } }
+                    else -> items(shown, key = { "v" + it.meta.id }) { v -> androidx.compose.foundation.layout.Box(Modifier.animateItem()) { SwipeDone(v.done, { toggleDone(v.meta.id) }) { VideoRow(v, more) { onOpen(v.meta.id) } } } }
                 }
             }
         }
@@ -391,6 +401,10 @@ fun HomeScreen(
 
         StatusBarScrim()
         NowPlayingBar(Modifier.align(Alignment.BottomCenter), onOpen)
+        androidx.compose.material3.SnackbarHost(
+            snackbar,
+            Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = if (nowId != null) 92.dp else 12.dp),
+        )
     }
 }
 
@@ -537,6 +551,7 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.width(116.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(radius)),
+            alpha = if (v.done) 0.5f else 1f,
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
@@ -546,6 +561,7 @@ private fun VideoRow(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Uni
                     Icon(Icons.Rounded.BorderColor, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
                     Text("${v.highlights.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                 }
+                if (v.done) DoneBadge()
                 if (v.pinned) Icon(Icons.Rounded.PushPin, "Pinned", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 OfflineBadge(v.meta.id)
                 if (v.clippedAt > 0) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -629,51 +645,79 @@ private fun HomeTab(label: String, selected: Boolean, count: Int, onClick: () ->
     }
 }
 
-/** The video you most likely came back for, across the whole width, with how much of it is left. */
+/** A video you started: how far along it is, how much is left, and a button to call it finished. */
 @Composable
-private fun ContinueCard(v: SavedVideo, onMore: (String) -> Unit, onClick: () -> Unit) {
+private fun ContinueRow(v: SavedVideo, onMore: (String) -> Unit, onDone: (String) -> Unit, onClick: () -> Unit) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val source = remember { MutableInteractionSource() }
     val scheme = MaterialTheme.colorScheme
     val total = v.meta.durationSec.toDouble()
     val frac = if (total > 0) (v.positionSec / total).toFloat().coerceIn(0f, 1f) else 0f
     val minutes = kotlin.math.ceil((total - v.positionSec).coerceAtLeast(0.0) / 60).toInt()
-    Box(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp).springPress(source, 0.98f)
-            .clip(RoundedCornerShape(22.dp)).background(scheme.surfaceContainer)
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).springPress(source, 0.98f)
+            .clip(RoundedCornerShape(20.dp))
             .combinedClickable(source, null, onLongClick = {
                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); onMore(v.meta.id)
             }, onClick = onClick)
-            .drawBehind {
-                val h = 3.dp.toPx()
-                drawRect(scheme.outlineVariant.copy(alpha = 0.5f), Offset(0f, size.height - h), Size(size.width, h))
-                drawRect(scheme.primary, Offset(0f, size.height - h), Size(size.width * frac, h))
-            },
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(
-                model = v.meta.thumb, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.width(116.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(14.dp)),
-            )
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    if (minutes <= 1) "Almost done" else "$minutes min left", Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
-                )
+        Box(Modifier.width(116.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(16.dp))) {
+            AsyncImage(model = v.meta.thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            // The line sits on the picture, like YouTube, so the row stays one clean shape.
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(androidx.compose.ui.graphics.Color(0x66FFFFFF))) {
+                Box(Modifier.fillMaxWidth(frac).height(3.dp).background(scheme.primary))
             }
-            Icon(Icons.Rounded.PlayArrow, null, tint = scheme.primary)
         }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+            Text(
+                listOf(if (minutes <= 1) "Almost done" else "$minutes min left", v.meta.author).filter { it.isNotBlank() }.joinToString("  ·  "),
+                Modifier.padding(top = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+            )
+        }
+        // A tick in a circle, the same as a to-do list. Tapping the row plays.
+        IconButton(onClick = { onDone(v.meta.id) }) { Icon(Icons.Outlined.CheckCircle, "Mark as done", tint = scheme.onSurfaceVariant) }
     }
+}
+
+/** Swipe a row to the right to mark it done, or not done. The row comes back to its place. */
+@Composable
+private fun SwipeDone(done: Boolean, onToggle: () -> Unit, content: @Composable () -> Unit) {
+    val state = androidx.compose.material3.rememberSwipeToDismissBoxState()
+    val scope = rememberCoroutineScope()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val scheme = MaterialTheme.colorScheme
+    androidx.compose.material3.SwipeToDismissBox(
+        state = state,
+        enableDismissFromEndToStart = false,
+        onDismiss = {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            onToggle()
+            scope.launch { state.snapTo(androidx.compose.material3.SwipeToDismissBoxValue.Settled) }
+        },
+        backgroundContent = {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(26.dp)).background(scheme.surfaceContainerHigh).padding(start = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Check, null, tint = scheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Text(if (done) "Not done" else "Done", style = MaterialTheme.typography.labelLarge)
+            }
+        },
+    ) { Box(Modifier.background(MaterialTheme.colorScheme.background)) { content() } }
 }
 
 /** A section title with a See all button that opens that section on its own page. */
 @Composable
-private fun SectionHeader(title: String, count: Int, always: Boolean = false, onSeeAll: () -> Unit) {
+private fun SectionHeader(title: String, count: Int, always: Boolean = false, limit: Int = 2, onSeeAll: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         // A row already shows two. See all earns its place only when there is more to see.
-        if (always || count > 2) TextButton(onClick = onSeeAll) { Text("See all $count", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (always || count > limit) TextButton(onClick = onSeeAll) { Text("See all $count", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         else Spacer(Modifier.height(48.dp))
     }
 }

@@ -153,14 +153,18 @@ fun buildScheme(p: Palette, mode: String, accentOverride: Long): ColorScheme {
             surfaceVariant = mix(0.12f),
             onSurfaceVariant = lerp(text, bg, 0.3f),
             surfaceContainerLowest = lerp(bg, Color.Black, 0.35f),
-            surfaceContainerLow = mix(0.04f),
-            surfaceContainer = mix(0.07f),
-            surfaceContainerHigh = mix(0.1f),
-            surfaceContainerHighest = mix(0.14f),
+            // On true black the same step is too faint to see, so panels lift a little more.
+            surfaceContainerLow = mix(if (mode == "oled") 0.07f else 0.04f),
+            surfaceContainer = mix(if (mode == "oled") 0.11f else 0.07f),
+            surfaceContainerHigh = mix(if (mode == "oled") 0.15f else 0.1f),
+            surfaceContainerHighest = mix(if (mode == "oled") 0.19f else 0.14f),
             outline = mix(0.45f),
             outlineVariant = mix(0.2f),
             error = Color(0xFFFF8A80),
             onError = Color(0xFF3B0A06),
+            inverseSurface = text,
+            inverseOnSurface = bg,
+            inversePrimary = p.accentLight,
         )
     } else {
         lightColorScheme(
@@ -191,6 +195,9 @@ fun buildScheme(p: Palette, mode: String, accentOverride: Long): ColorScheme {
             outlineVariant = mix(0.18f),
             error = Color(0xFFB3261E),
             onError = Color.White,
+            inverseSurface = text,
+            inverseOnSurface = bg,
+            inversePrimary = p.accent,
         )
     }
 }
@@ -279,6 +286,17 @@ fun MarginaliaTheme(settings: AppSettings, content: @Composable () -> Unit) {
     val mode = when (settings.appearance) {
         "light", "dusk", "dark", "oled" -> settings.appearance
         else -> if (systemDark) "dark" else "light"
+    }
+    // The clock and the phone's buttons follow the app's theme, not the phone's. Otherwise they are white on a light page.
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
+        var c = view.context
+        while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+        (c as? android.app.Activity)?.window?.let { w ->
+            val bars = androidx.core.view.WindowInsetsControllerCompat(w, view)
+            bars.isAppearanceLightStatusBars = mode == "light"
+            bars.isAppearanceLightNavigationBars = mode == "light"
+        }
     }
     val palette = paletteOf(settings.themePreset, settings.customPalettes)
     val uiFont = androidx.compose.runtime.remember(settings.customFontPath, settings.uiFontCustom) {
