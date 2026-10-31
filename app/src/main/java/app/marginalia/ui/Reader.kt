@@ -311,6 +311,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     LaunchedEffect(activeWord, settings.autoScroll) {
         if (settings.autoScroll) tview?.follow(activeWord)
     }
+    // Working on a highlight or a note: stay where you are, and offer the Sync button.
+    LaunchedEffect(editingId) { if (editingId != null) tview?.pauseFollow() }
 
     fun seek(sec: Double) {
         app.player.seekTo(sec)

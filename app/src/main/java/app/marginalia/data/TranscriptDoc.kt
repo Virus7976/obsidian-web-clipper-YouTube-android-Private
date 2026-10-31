@@ -1,6 +1,7 @@
 package app.marginalia.data
 
-data class Word(val start: Double, val charStart: Int, val charEnd: Int)
+/** [noise] marks caption marks that are not speech, such as ">>" and "[music]". They stay in the word list so saved highlights keep their place, but the reader hides them. */
+data class Word(val start: Double, val charStart: Int, val charEnd: Int, val noise: Boolean = false)
 
 /** A block of speech. [charStart] is where its timestamp begins, [firstWord] is its first spoken word. */
 data class Para(val charStart: Int, val charEnd: Int, val startSec: Double, val firstWord: Int, val lastWord: Int)
@@ -59,11 +60,28 @@ class TranscriptDoc(
         return if (last >= first && words[first].charStart < b) first..last else null
     }
 
+    /** Character ranges the reader draws as nothing: caption marks, and a paragraph that holds only marks. */
+    val hidden: List<IntRange> by lazy {
+        val out = ArrayList<IntRange>()
+        for (p in paras) {
+            if (p.firstWord in words.indices && p.lastWord in words.indices && (p.firstWord..p.lastWord).all { words[it].noise }) {
+                out += p.charStart until p.charEnd
+            }
+        }
+        for (w in words) {
+            if (!w.noise) continue
+            val end = if (w.charEnd < text.length && text[w.charEnd] == ' ') w.charEnd + 1 else w.charEnd
+            if (end > w.charStart) out += w.charStart until end
+        }
+        out
+    }
+
     fun paraOfWord(i: Int): Int = paras.indexOfLast { it.firstWord <= i }
 
     fun plainText(i0: Int, i1: Int): String {
         val sb = StringBuilder()
         for (i in i0..i1) {
+            if (words[i].noise) continue
             if (sb.isNotEmpty()) sb.append(' ')
             sb.append(text, words[i].charStart, words[i].charEnd)
         }
@@ -81,20 +99,27 @@ class TranscriptDoc(
                 else -> 170 to 280
             }
             // 1. every word with its time
-            class W(val text: String, val t: Double)
+            class W(val text: String, val t: Double, val noise: Boolean = false)
             val all = ArrayList<W>(cues.size * 6)
             for (c in cues) {
                 val tokens = c.text.split(spaces).filter { it.isNotEmpty() }
                 if (tokens.isEmpty()) continue
+                // ">>" and tags like [music] are marks, not speech. [upbeat music] is two tokens.
+                var inTag = false
+                val noise = BooleanArray(tokens.size) { i ->
+                    val tk = tokens[i]
+                    if (inTag || tk.startsWith("[")) { inTag = !tk.contains("]"); true }
+                    else tk.all { it == '>' }
+                }
                 val offs = c.offs?.takeIf { it.size == tokens.size }
                 if (offs != null) {
-                    tokens.forEachIndexed { i, tk -> all += W(tk, c.start + offs[i]) }
+                    tokens.forEachIndexed { i, tk -> all += W(tk, c.start + offs[i], noise[i]) }
                 } else {
                     val total = tokens.sumOf { it.length + 1 }.toDouble()
                     var cum = 0
                     val span = if (c.dur > 0) c.dur else tokens.size * 0.35
-                    tokens.forEach { tk ->
-                        all += W(tk, c.start + span * (cum / total))
+                    tokens.forEachIndexed { i, tk ->
+                        all += W(tk, c.start + span * (cum / total), noise[i])
                         cum += tk.length + 1
                     }
                 }
@@ -149,7 +174,7 @@ class TranscriptDoc(
                 } else sb.append(' ')
                 val c0 = sb.length
                 sb.append(w.text)
-                words += Word(w.t, c0, sb.length)
+                words += Word(w.t, c0, sb.length, w.noise)
                 paraLen += w.text.length + 1
                 lastT = w.t
                 lastText = w.text

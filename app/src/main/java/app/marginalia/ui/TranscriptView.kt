@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
@@ -17,6 +19,7 @@ import android.text.TextPaint
 import android.text.style.BackgroundColorSpan
 import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
+import android.text.style.ReplacementSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.text.style.UpdateAppearance
@@ -44,6 +47,12 @@ data class ReaderStyle(
     val maxWidthPx: Int,
     val highlighterOn: Boolean,
 )
+
+/** Takes no room and draws nothing. Used to hide caption marks such as ">>" and "[music]". */
+private class HiddenSpan : ReplacementSpan() {
+    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int = 0
+    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {}
+}
 
 /** Paints the word being spoken. Added last, so it sits on top of any highlight colour. */
 private class ActiveWordSpan(private val bg: Int, private val fg: Int) : CharacterStyle(), UpdateAppearance {
@@ -117,6 +126,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
                 sp.setSpan(RelativeSizeSpan(0.68f), r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 sp.setSpan(ForegroundColorSpan(s.mutedColor), r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
+            for (r in newDoc.hidden) {
+                sp.setSpan(HiddenSpan(), r.first, r.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
             // Line height goes above each line, so the selection handles and magnifier sit on the text.
             tv.setText(sp, TextView.BufferType.SPANNABLE)
             tv.setTextColor(s.textColor)
@@ -145,8 +157,15 @@ class TranscriptView(context: Context) : ScrollView(context) {
         super.onScrollChanged(l, t, oldl, oldt)
         onScrollDelta(t - oldt)
         // The reader dragged the text away from the spoken word: stop following and offer to sync.
-        if (SystemClock.uptimeMillis() - lastTouch < 1500 && activeIdx >= 0) setPaused(!isVisible(activeIdx))
+        val now = SystemClock.uptimeMillis()
+        if (now >= glidingUntil && now - lastTouch < 1500 && activeIdx >= 0) setPaused(true)
     }
+
+    /** Our own scrolling (a glide back, or following along) is not the reader scrolling away. */
+    private var glidingUntil = 0L
+
+    /** Stops following, so the Sync button shows and the text stays where the reader put it. */
+    fun pauseFollow() = setPaused(true)
 
     /** True while follow-along is paused because the reader scrolled away. */
     var paused = false
@@ -248,6 +267,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
     }
 
     private fun glideTo(target: Int) {
+        glidingUntil = SystemClock.uptimeMillis() + 700
         android.animation.ObjectAnimator.ofInt(this, "scrollY", scrollY, target).apply {
             duration = 480
             interpolator = android.view.animation.DecelerateInterpolator(1.7f)
@@ -324,16 +344,20 @@ class TranscriptView(context: Context) : ScrollView(context) {
         val d = doc ?: return
         if (word !in d.words.indices) return
         if (searching) return
+        if (tv.hasSelection()) { setPaused(true); return }
         if (paused) {
-            // the reader may have scrolled back to the spoken word on their own
-            if (SystemClock.uptimeMillis() - lastTouch > 1500 && isVisible(word)) setPaused(false)
+            // Follow again only if the reader scrolled so the spoken word sits where it would be put anyway.
+            val wy = yOfWord(word)
+            val comfy = wy != null && wy >= scrollY + height * 0.12f && wy <= scrollY + height * 0.62f
+            if (SystemClock.uptimeMillis() - lastTouch > 1500 && comfy) setPaused(false)
             return
         }
-        if (SystemClock.uptimeMillis() - lastTouch < 1500 || tv.hasSelection()) return
+        if (SystemClock.uptimeMillis() - lastTouch < 1500) return
         val layout = tv.layout ?: return
         val line = layout.getLineForOffset(d.words[word].charStart)
         val y = layout.getLineTop(line) + tv.paddingTop
         if (y < scrollY + height * 0.12f || y > scrollY + height * 0.62f) {
+            glidingUntil = SystemClock.uptimeMillis() + 900
             smoothScrollTo(0, (y - height * 0.3f).toInt().coerceAtLeast(0))
         }
     }
