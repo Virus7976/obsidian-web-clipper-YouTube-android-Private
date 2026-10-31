@@ -33,6 +33,7 @@ class Nav(
     val openVideo: (String) -> Unit,
     val openChannel: (String) -> Unit,
     val openChannelOfVideo: (String) -> Unit,
+    val openReview: () -> Unit = {},
 )
 
 val LocalNav = staticCompositionLocalOf<Nav> { error("Nav not provided") }
@@ -42,6 +43,7 @@ sealed interface Screen {
     data class Reader(val id: String) : Screen
     data class Channel(val url: String) : Screen
     data object Settings : Screen
+    data object Review : Screen
     data class Template(val id: String) : Screen
 }
 
@@ -76,6 +78,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                         }
                     },
                     openChannel = { url -> pushChannel(url) },
+                    openReview = { if (stack.last() != Screen.Review) stack.add(Screen.Review) },
                     openChannelOfVideo = { id ->
                         scope.launch {
                             val url = runCatching { ChannelSource.channelOfVideo(app.youtube, id) }.getOrNull()
@@ -99,6 +102,11 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                 }
             }
             CompositionLocalProvider(LocalNav provides nav) {
+            // The daily reminder opens Review.
+            val wantReview by app.openReview.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(wantReview) {
+                if (wantReview) { app.openReview.value = false; nav.openReview() }
+            }
             // When the queue starts the next video, the open reader follows it.
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 app.advanced.collect { id ->
@@ -163,6 +171,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                             onEditTemplate = { stack.add(Screen.Template(it)) },
                         )
                         is Screen.Template -> TemplateEditorScreen(screen.id, onBack = { stack.removeAt(stack.lastIndex) })
+                        Screen.Review -> ReviewScreen(onBack = { stack.removeAt(stack.lastIndex) })
                     }
                 }
             }
@@ -176,5 +185,6 @@ private fun depth(s: Screen) = when (s) {
     is Screen.Reader -> 1
     is Screen.Channel -> 1
     Screen.Settings -> 1
+    Screen.Review -> 1
     is Screen.Template -> 2
 }

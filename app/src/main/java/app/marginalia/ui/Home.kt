@@ -108,6 +108,7 @@ fun HomeScreen(
     val player by app.player.state.collectAsState()
 
     var addOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var actionsMeta by remember { mutableStateOf<VideoMeta?>(null) }
     var newPlaylistOpen by remember { mutableStateOf(false) }
@@ -126,6 +127,8 @@ fun HomeScreen(
     var filter by remember { mutableStateOf(LibraryFilter()) }
     val playlists by app.playlists.all.collectAsState()
     val queue by app.queue.ids.collectAsState()
+    val reviewCards by app.reviews.cards.collectAsState()
+    val dueCount = remember(videos, reviewCards) { app.reviews.due(videos).size }
 
     // A playlist link that came from the YouTube app opens the Add pop-up with it filled in.
     LaunchedEffect(incoming) {
@@ -194,6 +197,7 @@ fun HomeScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("Add")
                     }
+                    IconButton(onClick = { searchOpen = true }) { Icon(Icons.Rounded.Search, "Search everything") }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
             }
@@ -202,6 +206,26 @@ fun HomeScreen(
                 FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     visibleTabs.forEach { id ->
                         androidx.compose.material3.FilterChip(selected = tab == id, onClick = { tab = id }, label = { Text(HomeTabs.getValue(id) + when (id) { "queue" -> queue.size.takeIf { it > 0 }?.let { " · $it" }; "feed" -> subs.size.takeIf { it > 0 }?.let { " · $it" }; else -> null }.orEmpty()) })
+                    }
+                }
+            }
+
+            // Highlights that are ready to look at again.
+            if (tab == "library" && query.isBlank() && openPlaylist == null && page == null && dueCount > 0) item("review") {
+                androidx.compose.material3.Surface(
+                    onClick = nav.openReview, shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    Row(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Highlight, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Review", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text(
+                                "$dueCount highlight${if (dueCount == 1) "" else "s"} to look at again",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
                     }
                 }
             }
@@ -336,6 +360,11 @@ fun HomeScreen(
         if (newPlaylistOpen) NewPlaylistDialog(
             onDismiss = { newPlaylistOpen = false },
             onCreate = { name -> app.playlists.create(name); newPlaylistOpen = false },
+        )
+
+        if (searchOpen) LibrarySearchSheet(
+            onDismiss = { searchOpen = false },
+            onOpenPlaylist = { id -> query = ""; page = null; tab = "library"; openPlaylist = id },
         )
 
         if (addOpen) AddSheet(

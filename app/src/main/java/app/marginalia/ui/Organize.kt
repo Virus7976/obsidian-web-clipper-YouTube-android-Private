@@ -175,7 +175,9 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
     var confirmRemove by remember { mutableStateOf(false) }
     var newPlaylist by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    val sheet = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val peeking = sheet.currentValue == androidx.compose.material3.SheetValue.PartiallyExpanded
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -241,6 +243,29 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                 style = MaterialTheme.typography.bodySmall, color = scheme.error,
             )
 
+            // Most used first: put it on a playlist. Everything below opens with a swipe up.
+            if (inLib) GroupCard {
+                FieldBlock("Add to a playlist") {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        playlists.forEach { p ->
+                            val inIt = videoId in p.videoIds
+                            FilterChip(
+                                selected = inIt,
+                                onClick = { if (inIt) app.playlists.removeVideo(p.id, videoId) else app.playlists.addVideo(p.id, videoId) },
+                                label = { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                        androidx.compose.material3.AssistChip(
+                            onClick = { newPlaylist = true },
+                            label = { Text("New playlist") },
+                            leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) },
+                        )
+                    }
+                }
+            } else androidx.compose.material3.FilledTonalButton(
+                onClick = { scope.launch { app.addToLibrary(videoId) } }, modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add to library, to tag and sort it") }
+
             val nav = LocalNav.current
             GroupCard {
                 ListRow(Icons.Rounded.OpenInNew, "Open note") { if (openVideoNote(ctx, app, v)) onDismiss() }
@@ -248,9 +273,10 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                 ListRow(Icons.Rounded.OpenInNew, "Go to ${v.meta.author.ifBlank { "the channel" }}") { nav.openChannelOfVideo(videoId); onDismiss() }
             }
 
-            if (!inLib) androidx.compose.material3.FilledTonalButton(
-                onClick = { scope.launch { app.addToLibrary(videoId) } }, modifier = Modifier.fillMaxWidth(),
-            ) { Text("Add to library, to tag and sort it") }
+            if (inLib && peeking) Text(
+                "Swipe up for category, tags and more", Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
 
             if (inLib) GroupCard {
                 val everyCategory = remember(videos) { videos.map { it.category }.filter { it.isNotBlank() }.distinctBy { it.lowercase() } }
@@ -295,25 +321,6 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                                 FilterChip(selected = false, onClick = { addTag(t) }, label = { Text("#$t") })
                             }
                         }
-                    }
-                }
-                RowDivider(16.dp)
-
-                FieldBlock("Playlists") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        playlists.forEach { p ->
-                            val inIt = videoId in p.videoIds
-                            FilterChip(
-                                selected = inIt,
-                                onClick = { if (inIt) app.playlists.removeVideo(p.id, videoId) else app.playlists.addVideo(p.id, videoId) },
-                                label = { Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            )
-                        }
-                        androidx.compose.material3.AssistChip(
-                            onClick = { newPlaylist = true },
-                            label = { Text("New playlist") },
-                            leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)) },
-                        )
                     }
                 }
             }

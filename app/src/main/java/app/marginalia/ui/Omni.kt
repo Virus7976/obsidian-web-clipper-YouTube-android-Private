@@ -238,7 +238,7 @@ private fun ResultRow(item: OmniItem, picked: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun marked(text: String, at: List<Int>, color: androidx.compose.ui.graphics.Color): AnnotatedString = buildAnnotatedString {
+internal fun marked(text: String, at: List<Int>, color: androidx.compose.ui.graphics.Color): AnnotatedString = buildAnnotatedString {
     val set = at.toHashSet()
     text.forEachIndexed { i, c ->
         if (i in set) withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, color = color)) { append(c) } else append(c)

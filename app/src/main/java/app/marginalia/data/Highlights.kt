@@ -36,6 +36,7 @@ object Highlights {
         color = color,
         w0 = i0,
         w1 = i1,
+        createdAt = System.currentTimeMillis(),
     )
 
     /** Paint words i0..i1 in [color]. Whatever was there is replaced; a partly covered highlight is cut, not lost. */

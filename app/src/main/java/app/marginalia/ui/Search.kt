@@ -25,14 +25,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import app.marginalia.data.Omni
 import app.marginalia.data.SavedVideo
 
-/** Every word typed has to appear somewhere in the fields. Capitals do not matter. */
+/**
+ * Every word typed has to match somewhere in the fields. Capitals do not matter.
+ * Short fields such as a title forgive skipped letters, so "mmil" finds "Marcia Milligan".
+ * Long text, such as your highlights, must contain the word as typed.
+ */
 fun matchesQuery(query: String, vararg fields: String): Boolean {
     val words = query.lowercase().split(' ').filter { it.isNotBlank() }
     if (words.isEmpty()) return true
-    val hay = fields.joinToString(" ").lowercase()
-    return words.all { hay.contains(it) }
+    return words.all { w ->
+        fields.any { f -> f.contains(w, ignoreCase = true) || (f.length <= 120 && w.length >= 2 && Omni.fuzzy(f, w) != null) }
+    }
 }
 
 /** Looks in the title, channel, category, tags, and the words and notes you highlighted. */

@@ -12,6 +12,9 @@ import app.marginalia.update.SelfUpdate
 import app.marginalia.data.YouTube
 import app.marginalia.obsidian.ClipperImport
 import app.marginalia.player.PlayerHost
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class MarginaliaApp : Application() {
     lateinit var settings: SettingsStore
@@ -36,6 +39,16 @@ class MarginaliaApp : Application() {
         private set
     lateinit var audio: AudioCache
         private set
+    lateinit var reviews: app.marginalia.data.Reviews
+        private set
+
+    val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
+    /** A highlight picked in search: the reader scrolls to it when it opens. Video id and second. */
+    val pendingSeek = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, Double>?>(null)
+
+    /** Set when the review reminder was tapped. The app opens Review and clears it. */
+    val openReview = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     /** Fires with the video id when the queue starts the next video by itself. */
     val advanced = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
@@ -46,6 +59,7 @@ class MarginaliaApp : Application() {
         vaults = VaultStore(this, settings)
         updates = SelfUpdate(this, settings)
         library = Library(this)
+        reviews = app.marginalia.data.Reviews(this)
         playlists = Playlists(this)
         queue = PlayQueue(settings)
         youtube = YouTube { settings.value }
@@ -55,10 +69,27 @@ class MarginaliaApp : Application() {
         audio = AudioCache(this, youtube, finder) { settings.value }
         player = PlayerHost(this, finder) { settings.value }
         player.cache = audio
-        player.onEnded = { player.state.value.videoId?.let(::markWatched); playNextInQueue() }
-        player.onWatched = ::markWatched
+        player.onEnded = { player.state.value.videoId?.let { markWatched(it); autoClip(it) }; playNextInQueue() }
+        player.onWatched = { markWatched(it); autoClip(it) }
+        // The reminder alarm follows the settings.
+        appScope.launch {
+            settings.state.map { it.reviewReminder to it.reviewHour }.distinctUntilChanged().collect { (on, hour) ->
+                ReviewReminder.schedule(this@MarginaliaApp, on, hour)
+            }
+        }
         seedFromBundledClipperSettings()
         updates.checkIfDue()
+    }
+
+    /** Saves the highlights to Obsidian when a video ends, if that is switched on. */
+    fun autoClip(id: String) {
+        if (!settings.value.autoClip) return
+        appScope.launch {
+            val message = runCatching { app.marginalia.obsidian.AutoClip.run(this@MarginaliaApp, id) }.getOrNull() ?: return@launch
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                android.widget.Toast.makeText(this@MarginaliaApp, message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     /** A video was watched to the end. It leaves every playlist that is set to drop watched videos. */

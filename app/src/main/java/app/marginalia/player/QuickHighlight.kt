@@ -20,7 +20,7 @@ object QuickHighlight {
         if (transcript == null) {
             // No captions, for example a song. Keep the moment, so a note can be added to it later.
             val t = ps.positionSec
-            val mark = Highlight(java.util.UUID.randomUUID().toString(), t, t, "", "", app.settings.value.highlightColor)
+            val mark = Highlight(java.util.UUID.randomUUID().toString(), t, t, "", "", app.settings.value.highlightColor, createdAt = System.currentTimeMillis())
             app.library.edit(id) { it.copy(highlights = it.highlights + mark) }
             return "Marked " + YouTube.formatTime(t) + "."
         }

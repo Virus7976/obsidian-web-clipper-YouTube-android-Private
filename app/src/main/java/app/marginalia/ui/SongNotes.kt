@@ -52,7 +52,7 @@ fun SongNotes(video: SavedVideo, failure: String?, nowSec: Double, onSeek: (Doub
     val at = stamp ?: nowSec
 
     fun add(note: String, t: Double) {
-        val h = Highlight(UUID.randomUUID().toString(), t, t, "", note.trim(), settings.highlightColor)
+        val h = Highlight(UUID.randomUUID().toString(), t, t, "", note.trim(), settings.highlightColor, createdAt = System.currentTimeMillis())
         app.library.edit(video.meta.id) { it.copy(highlights = it.highlights + h) }
         text = ""
         stamp = null

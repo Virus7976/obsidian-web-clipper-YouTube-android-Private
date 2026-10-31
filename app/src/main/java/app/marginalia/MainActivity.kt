@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
         val app = application as MarginaliaApp
         app.player.connectService(this)
         incoming = linkFrom(intent)
+        if (intent?.getBooleanExtra(ReviewReminder.EXTRA_REVIEW, false) == true) app.openReview.value = true
         setContent {
             AppRoot(app, incoming) { incoming = null }
         }
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.getBooleanExtra(ReviewReminder.EXTRA_REVIEW, false)) (application as MarginaliaApp).openReview.value = true
         linkFrom(intent)?.let { incoming = it }
     }
 

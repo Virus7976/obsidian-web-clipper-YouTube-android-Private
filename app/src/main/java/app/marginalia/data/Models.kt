@@ -52,6 +52,8 @@ data class Highlight(
     /** First and last word, by position in the transcript. -1 on highlights saved by version 1.0, which only know the time. */
     val w0: Int = -1,
     val w1: Int = -1,
+    /** When it was made, in milliseconds. 0 on highlights from before review mode. */
+    val createdAt: Long = 0L,
 )
 
 /**
@@ -174,6 +176,12 @@ data class AppSettings(
     val highlightSyntax: String = "obsidian", // obsidian | plain
     val highlightFormat: String = "> {text}\n> [{time}]({link})",
     val autoPlay: Boolean = true,
+    /** Save a video's highlights to Obsidian by itself when it ends. */
+    val autoClip: Boolean = false,
+    /** A daily nudge with one old highlight. */
+    val reviewReminder: Boolean = false,
+    val reviewHour: Int = 9,
+    val recentSearches: List<String> = emptyList(),
     // obsidian
     val saveBehavior: String = "addToObsidian", // addToObsidian | saveFile | copyToClipboard | share
     /** When the video is already in the vault, fill the save sheet from that note so you can add to it. */

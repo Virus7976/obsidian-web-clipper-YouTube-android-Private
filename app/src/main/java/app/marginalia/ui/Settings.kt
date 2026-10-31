@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.FileUpload
@@ -123,6 +124,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
         SettingsEntry("reading", "Reading", "Font, text size, the player", Icons.Rounded.MenuBook),
         SettingsEntry("highlights", "Highlights", "How words are marked and saved", Icons.Rounded.Highlight),
         SettingsEntry("obsidian", "Obsidian", "Vaults, templates, what a clip adds", Icons.Rounded.Description),
+        SettingsEntry("review", "Review", "Come back to old highlights", androidx.compose.material.icons.Icons.Rounded.Notifications),
         SettingsEntry("playback", "Playback and captions", "Autoplay, background, muting", Icons.Rounded.PlayCircle),
         SettingsEntry("lock", "Lock screen", "The player when the screen is off", Icons.Rounded.Lock),
         SettingsEntry("updates", "Updates", "Check for and install new versions", Icons.Rounded.SystemUpdate),
@@ -371,6 +373,11 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     listOf("addToObsidian" to "Open Obsidian", "saveFile" to "Save file", "copyToClipboard" to "Copy", "share" to "Share"),
                     s.saveBehavior,
                 ) { v -> set { it.copy(saveBehavior = v) } }
+                SwitchRow(
+                    "Save by itself when a video ends",
+                    "Only if it has highlights. It adds to your note when there is one, and never opens Obsidian.",
+                    s.autoClip,
+                ) { v -> set { it.copy(autoClip = v) } }
 
                 Label("Vaults")
                 val indexes by app.vaults.indexes.collectAsState()
@@ -566,6 +573,20 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 }) { Text("Reset templates to the bundled set") }
             } }
 
+            // ---------- review ----------
+            if (show("review", SettingsKeys.review)) item { Group("Review") {
+                val notif = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+                SwitchRow("Daily reminder", "A notification with one old highlight. Open Review from the Library page any time.", s.reviewReminder) { v ->
+                    set { it.copy(reviewReminder = v) }
+                    if (v && android.os.Build.VERSION.SDK_INT >= 33) notif.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+                Label("Time")
+                Choices(
+                    listOf("8" to "8 am", "12" to "Noon", "18" to "6 pm", "20" to "8 pm"),
+                    s.reviewHour.toString(),
+                ) { v -> set { it.copy(reviewHour = v.toInt()) } }
+            } }
+
             // ---------- playback ----------
             if (show("playback", SettingsKeys.playback)) item { Group("Playback and captions") {
                 SwitchRow("Start playing when I open a video", null, s.autoPlay) { v -> set { it.copy(autoPlay = v) } }
@@ -671,6 +692,7 @@ private object SettingsKeys {
     const val updates = "updates update version install installer android shizuku wireless adb pair pairing code port check on its own sources github repo token mirror skip release"
     const val obsidian = "obsidian when i tap clip open save file copy share vaults vault folder reindex index tags notes search fill prefill existing already saved always every automatic auto properties property templates template new import export presets clipper settings reset"
     const val lock = "lock screen lockscreen player cover minimal words background blurred theme colour black clock date transcript spoken highlight button display over other apps overlay permission"
+    const val review = "review reminder daily notification highlight again remember spaced old quote remind morning evening time"
     const val playback = "playback captions start playing open a video background audio screen off notification keep screen on"
     const val advanced = "advanced client version android ios vr youtube innertube"
 }

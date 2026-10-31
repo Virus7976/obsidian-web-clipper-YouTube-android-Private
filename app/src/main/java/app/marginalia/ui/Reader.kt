@@ -576,6 +576,18 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         )
     }
 
+    // A highlight picked in search: show the place it came from.
+    val pending by app.pendingSeek.collectAsState()
+    LaunchedEffect(pending, videoId, doc, tview) {
+        val p = pending ?: return@LaunchedEffect
+        if (p.first != videoId) return@LaunchedEffect
+        val d = doc
+        val tv = tview
+        if (transcript != null && (d == null || tv == null)) return@LaunchedEffect
+        d?.wordAtTime(p.second)?.takeIf { it >= 0 }?.let { tv?.scrollToWord(it) }
+        app.pendingSeek.value = null
+    }
+
     if (showSave) {
         SaveSheet(
             video = video,
@@ -750,6 +762,8 @@ private fun ChapterChips(chapters: List<Chapter>, active: Int, onClick: (Chapter
 private fun HighlightsSheet(video: SavedVideo, onDismiss: () -> Unit, onJump: (Highlight) -> Unit) {
     val app = LocalApp.current
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var find by remember { mutableStateOf("") }
+    val ordered = remember(video.highlights, find) { video.highlights.sortedBy { it.startSec }.filter { matchesQuery(find, it.text, it.note) } }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(Modifier.padding(bottom = 24.dp)) {
             Text(
@@ -765,8 +779,14 @@ private fun HighlightsSheet(video: SavedVideo, onDismiss: () -> Unit, onJump: (H
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // A long list is hard to scan. The box finds a word in what you highlighted or wrote.
+            if (video.highlights.size >= 5) SearchField(find, { find = it }, "Search these highlights")
+            if (find.isNotBlank() && ordered.isEmpty()) Text(
+                "No highlight matches \"$find\".", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             LazyColumn(Modifier.weight(1f, fill = false)) {
-                itemsIndexed(video.highlights, key = { _, h -> h.id }) { _, h ->
+                itemsIndexed(ordered, key = { _, h -> h.id }) { _, h ->
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
                             .clip(MaterialTheme.shapes.large)
