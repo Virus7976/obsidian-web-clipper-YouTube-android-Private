@@ -5,6 +5,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -137,7 +140,7 @@ fun ReviewScreen(onBack: () -> Unit) {
         } else {
             val h = item.highlight
             val tone = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
-            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
                 // A quiet cue behind the card: a check on the left for keep, a cross on the right for drop.
                 // It fades in as you drag and fills in when letting go would count.
                 val pull = (abs(offset.value) / (width * 0.28f)).coerceIn(0f, 1f)
@@ -165,6 +168,8 @@ fun ReviewScreen(onBack: () -> Unit) {
                     border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.6f)),
                     modifier = Modifier
                         .fillMaxWidth()
+                        // Never taller than the space. A long quote scrolls inside, so Open stays in view.
+                        .heightIn(max = maxHeight)
                         .graphicsLayer {
                             val e = arrive.value
                             translationX = offset.value
@@ -193,18 +198,21 @@ fun ReviewScreen(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Text(
-                            quote,
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontFamily = FontFamily(Font(R.font.newsreader)),
-                                fontSize = if (long) 21.sp else 27.sp, lineHeight = if (long) 31.sp else 39.sp,
-                            ),
-                            maxLines = 14, overflow = TextOverflow.Ellipsis,
-                        )
-                        if (h.text.isNotBlank() && h.note.isNotBlank()) Text(
-                            h.note, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
-                            maxLines = 6, overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(
+                            Modifier.weight(1f, fill = false).verticalScroll(remember(at) { androidx.compose.foundation.ScrollState(0) }),
+                            verticalArrangement = Arrangement.spacedBy(22.dp),
+                        ) {
+                            Text(
+                                quote,
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontFamily = FontFamily(Font(R.font.newsreader)),
+                                    fontSize = if (long) 21.sp else 27.sp, lineHeight = if (long) 31.sp else 39.sp,
+                                ),
+                            )
+                            if (h.text.isNotBlank() && h.note.isNotBlank()) Text(
+                                h.note, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
+                            )
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(YouTube.formatTime(h.startSec), style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                             TextButton(onClick = {
