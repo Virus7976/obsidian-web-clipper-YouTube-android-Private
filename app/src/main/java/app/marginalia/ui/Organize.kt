@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
@@ -273,8 +274,10 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                 ListRow(Icons.Rounded.OpenInNew, "Go to ${v.meta.author.ifBlank { "the channel" }}") { nav.openChannelOfVideo(videoId); onDismiss() }
             }
 
-            if (inLib && peeking) Text(
-                "Swipe up for category, tags and more", Modifier.fillMaxWidth(),
+            // Fade it, never remove it. Removing it shifts the whole sheet in the middle of a swipe.
+            val hintAlpha by androidx.compose.animation.core.animateFloatAsState(if (peeking) 1f else 0f, label = "hint")
+            if (inLib) Text(
+                "Swipe up for category, tags and more", Modifier.fillMaxWidth().graphicsLayer { alpha = hintAlpha },
                 style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 

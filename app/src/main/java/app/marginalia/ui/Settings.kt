@@ -585,6 +585,11 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     listOf("8" to "8 am", "12" to "Noon", "18" to "6 pm", "20" to "8 pm"),
                     s.reviewHour.toString(),
                 ) { v -> set { it.copy(reviewHour = v.toInt()) } }
+                Label("Highlights in one round")
+                Choices(
+                    listOf("5" to "5", "10" to "10", "20" to "20", "0" to "No limit"),
+                    s.reviewBatch.toString(),
+                ) { v -> set { it.copy(reviewBatch = v.toInt()) } }
             } }
 
             // ---------- playback ----------
@@ -592,6 +597,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                 SwitchRow("Start playing when I open a video", null, s.autoPlay) { v -> set { it.copy(autoPlay = v) } }
                 SwitchRow("Keep playing in the background","Audio continues with the screen off, with a notification.", s.backgroundPlay) { v -> set { it.copy(backgroundPlay = v) } }
                 SwitchRow("Keep the screen on", "Only while a video is playing.", s.keepScreenOn) { v -> set { it.copy(keepScreenOn = v) } }
+                SwitchRow("Pause while I type a note", "Playback waits while you write a note on a highlight, then carries on.", s.pauseWhileNoting) { v -> set { it.copy(pauseWhileNoting = v) } }
                 SwitchRow("Pause when muted", "Turn the volume to zero and it pauses. Turn it up and it plays again.", s.pauseOnMute) { v -> set { it.copy(pauseOnMute = v) } }
                 OutlinedTextField(
                     value = s.captionLang,
@@ -692,8 +698,8 @@ private object SettingsKeys {
     const val updates = "updates update version install installer android shizuku wireless adb pair pairing code port check on its own sources github repo token mirror skip release"
     const val obsidian = "obsidian when i tap clip open save file copy share vaults vault folder reindex index tags notes search fill prefill existing already saved always every automatic auto properties property templates template new import export presets clipper settings reset"
     const val lock = "lock screen lockscreen player cover minimal words background blurred theme colour black clock date transcript spoken highlight button display over other apps overlay permission"
-    const val review = "review reminder daily notification highlight again remember spaced old quote remind morning evening time"
-    const val playback = "playback captions start playing open a video background audio screen off notification keep screen on"
+    const val review = "review round cards limit how many reminder daily notification highlight again remember spaced old quote remind morning evening time"
+    const val playback = "playback pause type typing note captions start playing open a video background audio screen off notification keep screen on"
     const val advanced = "advanced client version android ios vr youtube innertube"
 }
 

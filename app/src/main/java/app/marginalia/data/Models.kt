@@ -181,6 +181,10 @@ data class AppSettings(
     /** A daily nudge with one old highlight. */
     val reviewReminder: Boolean = false,
     val reviewHour: Int = 9,
+    /** Cards in one Review round. 0 means no limit. */
+    val reviewBatch: Int = 5,
+    /** Playback waits while a note on a highlight is being typed. */
+    val pauseWhileNoting: Boolean = true,
     val recentSearches: List<String> = emptyList(),
     // obsidian
     val saveBehavior: String = "addToObsidian", // addToObsidian | saveFile | copyToClipboard | share

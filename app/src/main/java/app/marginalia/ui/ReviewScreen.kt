@@ -65,7 +65,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private const val BATCH = 5
+/** What the last swipe did, so Undo can put it back. */
+private class Undo(val index: Int, val id: String, val previous: app.marginalia.data.ReviewCard?, val what: String)
 
 /**
  * Review mode. One old highlight at a time. Swipe right or press Keep to see it again later.
@@ -81,7 +82,12 @@ fun ReviewScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
 
-    var batch by remember { mutableStateOf<List<DueItem>>(app.reviews.due(videos).take(BATCH)) }
+    val settings by app.settings.state.collectAsState()
+    // 0 in settings means no limit.
+    val limit = settings.reviewBatch.takeIf { it > 0 } ?: Int.MAX_VALUE
+    var batch by remember { mutableStateOf<List<DueItem>>(app.reviews.due(videos).take(limit)) }
+    var last by remember { mutableStateOf<Undo?>(null) }
+    androidx.compose.runtime.LaunchedEffect(last) { if (last != null) { kotlinx.coroutines.delay(6000); last = null } }
     var at by remember { mutableIntStateOf(0) }
     var kept by remember { mutableIntStateOf(0) }
     var dropped by remember { mutableIntStateOf(0) }
@@ -93,7 +99,9 @@ fun ReviewScreen(onBack: () -> Unit) {
         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
         scope.launch {
             offset.animateTo(if (keep) width else -width)
+            val prev = app.reviews.cards.value[item.highlight.id]
             if (keep) { app.reviews.keep(item.highlight.id); kept++ } else { app.reviews.drop(item.highlight.id); dropped++ }
+            last = Undo(at, item.highlight.id, prev, if (keep) "Kept" else "Dropped")
             at++
             offset.snapTo(0f)
         }
@@ -114,12 +122,13 @@ fun ReviewScreen(onBack: () -> Unit) {
 
         val item = batch.getOrNull(at)
         if (item == null) {
-            Done(
+            Box(Modifier.weight(1f).fillMaxWidth()) { Done(
                 kept = kept, dropped = dropped, hadAny = batch.isNotEmpty(),
                 more = remember(videos, at) { app.reviews.due(videos).size },
-                onMore = { batch = app.reviews.due(videos).take(BATCH); at = 0; kept = 0; dropped = 0 },
+                size = limit,
+                onMore = { batch = app.reviews.due(videos).take(limit); at = 0; kept = 0; dropped = 0; last = null },
                 onBack = onBack,
-            )
+            ) }
         } else {
             val h = item.highlight
             val bar = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
@@ -204,17 +213,41 @@ fun ReviewScreen(onBack: () -> Unit) {
             }
             TextButton(
                 onClick = {
+                    last = Undo(at, h.id, app.reviews.cards.value[h.id], "Skipped")
                     app.reviews.later(h.id)
                     at++
                 },
                 modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
             ) { Text("Not now, ask me tomorrow") }
         }
+
+        // Undo stays for a few seconds after every swipe.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = last != null,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { it / 2 },
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
+        ) {
+            val u = last
+            Surface(shape = RoundedCornerShape(50), color = scheme.inverseSurface) {
+                Row(Modifier.padding(start = 20.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(u?.what.orEmpty(), color = scheme.inverseOnSurface, style = MaterialTheme.typography.labelLarge)
+                    TextButton(onClick = {
+                        u?.let { x ->
+                            app.reviews.restore(x.id, x.previous)
+                            at = x.index
+                            when (x.what) { "Kept" -> kept = (kept - 1).coerceAtLeast(0); "Dropped" -> dropped = (dropped - 1).coerceAtLeast(0) }
+                        }
+                        last = null
+                    }) { Text("Undo", color = scheme.inversePrimary) }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun Done(kept: Int, dropped: Int, hadAny: Boolean, more: Int, onMore: () -> Unit, onBack: () -> Unit) {
+private fun Done(kept: Int, dropped: Int, hadAny: Boolean, more: Int, size: Int, onMore: () -> Unit, onBack: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
@@ -230,7 +263,7 @@ private fun Done(kept: Int, dropped: Int, hadAny: Boolean, more: Int, onMore: ()
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         Spacer(Modifier.height(24.dp))
-        if (more > 0) Button(onClick = onMore, shapes = ButtonDefaults.shapes()) { Text("Review ${minOf(more, BATCH)} more") }
+        if (more > 0) Button(onClick = onMore, shapes = ButtonDefaults.shapes()) { Text("Review ${if (size == Int.MAX_VALUE) "all $more" else minOf(more, size).toString() + " more"}") }
         TextButton(onClick = onBack) { Text("Done") }
     }
 }

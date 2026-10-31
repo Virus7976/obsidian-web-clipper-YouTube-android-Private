@@ -48,6 +48,12 @@ class Reviews(context: Context) : JsonFileStore<List<ReviewCard>>(File(context.f
         put(ReviewCard(id, now + DAYS[step.coerceAtMost(DAYS.lastIndex)] * DAY, step + 1))
     }
 
+    /** Puts a card back the way it was. For Undo. A null [previous] means it had no card yet. */
+    fun restore(id: String, previous: ReviewCard?) {
+        _state.update { if (previous == null) it - id else it + (id to previous) }
+        save()
+    }
+
     /** Not now. Comes back tomorrow without counting as kept. */
     fun later(id: String, now: Long = System.currentTimeMillis()) {
         val c = _state.value[id]

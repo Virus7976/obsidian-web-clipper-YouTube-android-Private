@@ -312,7 +312,17 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
         if (settings.autoScroll) tview?.follow(activeWord)
     }
     // Working on a highlight or a note: stay where you are, and offer the Sync button.
-    LaunchedEffect(editingId) { if (editingId != null) tview?.pauseFollow() }
+    // While a note is typed the page stays put. If you want it, playback waits too, and carries on after.
+    var pausedForNote by remember { mutableStateOf(false) }
+    LaunchedEffect(editingId) {
+        if (editingId != null) {
+            tview?.pauseFollow()
+            if (settings.pauseWhileNoting && ps.value.playing) { app.player.pause(); pausedForNote = true }
+        } else if (pausedForNote) {
+            pausedForNote = false
+            app.player.play()
+        }
+    }
 
     fun seek(sec: Double) {
         app.player.seekTo(sec)

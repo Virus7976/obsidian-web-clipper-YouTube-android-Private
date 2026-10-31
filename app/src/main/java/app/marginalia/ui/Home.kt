@@ -155,6 +155,9 @@ fun HomeScreen(
             else -> page = null
         }
     }
+    // A new search starts at the top, where the search box is, not wherever the list was scrolled to.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(query, tab) { listState.scrollToItem(0) }
     var refreshing by remember { mutableStateOf(false) }
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
@@ -173,6 +176,7 @@ fun HomeScreen(
         ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
                 bottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 120.dp,

@@ -66,10 +66,13 @@ fun ChannelScreen(url: String, onBack: () -> Unit) {
 
     actionsFor?.let { id -> VideoActionsSheet(id, pending = actionsMeta, onDismiss = { actionsFor = null }) }
     val inLibrary = remember(library) { library.map { it.meta.id }.toSet() }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(query) { listState.scrollToItem(0) }
     val o = opened
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                 bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 40.dp,
