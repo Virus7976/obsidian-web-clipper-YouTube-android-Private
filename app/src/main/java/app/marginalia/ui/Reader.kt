@@ -111,6 +111,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -327,6 +329,14 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     androidx.activity.compose.BackHandler(enabled = editingId != null) { editingId = null }
     // Working on a highlight: stay where you are, and offer the Sync button.
     LaunchedEffect(editingId) { if (editingId != null) tview?.pauseFollow() else noteFocused = false }
+    // The note bar takes room from the text. Keep the marked words in view above it.
+    LaunchedEffect(editingId) {
+        val id = editingId ?: return@LaunchedEffect
+        val w = video.highlights.firstOrNull { it.id == id }?.w0 ?: return@LaunchedEffect
+        delay(400)
+        val tv = tview ?: return@LaunchedEffect
+        if (w >= 0 && !tv.isVisible(w)) { tv.scrollToWord(w); tv.pauseFollow() }
+    }
     // Playback waits only while you are in the note box, not every time a highlight is made.
     var pausedForNote by remember { mutableStateOf(false) }
     val typing = editingId != null && noteFocused
@@ -440,7 +450,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
             LaunchedEffect(videoId) { delay(380); settled = true }
             val fade by androidx.compose.animation.core.animateFloatAsState(if (settled) 1f else 0f, androidx.compose.animation.core.tween(220), label = "transcriptFade")
             // The text stops above the phone's own buttons, so nothing is read through them.
-            Box(Modifier.weight(1f).fillMaxWidth().then(if (immersive) Modifier else Modifier.navigationBarsPadding()).clipToBounds().graphicsLayer { alpha = fade }) {
+            Box(Modifier.weight(1f).fillMaxWidth().then(if (immersive || editingId != null) Modifier else Modifier.navigationBarsPadding()).clipToBounds().graphicsLayer { alpha = fade }) {
                 val d = doc
                 if (d != null && settled) {
                     AndroidView(
@@ -487,51 +497,47 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
                 }
             }
-        }
-
-        // Note bar for the highlight just made, or the one that was tapped.
-        val editing = video.highlights.firstOrNull { it.id == editingId }
-        // Tags and links come from the vault you save to.
-        val noteVault = settings.linkedVault(settings.vault) ?: settings.vaultFolders.keys.firstOrNull()
-        val tagPool = remember(editingId, noteVault) {
-            app.library.videos.value.flatMap { v -> v.highlights.flatMap { it.tags } }
-                .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key } +
-                (noteVault?.let { app.vaults.indexes.value[it]?.tags?.keys }.orEmpty())
-        }
-        AnimatedVisibility(
-            visible = editing != null,
-            modifier = Modifier.align(Alignment.BottomCenter).imePadding().padding(
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp,
-            ),
-            enter = androidx.compose.animation.slideInVertically(spring(0.7f, 420f)) { it / 2 } + fadeIn(),
-            exit = androidx.compose.animation.slideOutVertically { it / 2 } + fadeOut(),
-        ) {
-            var last by remember { mutableStateOf(editing) }
-            if (editing != null) last = editing
-            last?.let { h ->
-                HighlightNoteBar(
-                    h = h,
-                    onNote = { text -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(note = text) else it }) } },
-                    tags = h.tags,
-                    onTags = { t -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(tags = t) else it }) } },
-                    vault = noteVault,
-                    suggestTags = tagPool,
-                    onTyping = { noteFocused = it },
-                    onColor = { c ->
-                        app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = c) else it }) }
-                        app.settings.update { it.copy(highlightColor = c) } // the next highlight starts with this colour
-                    },
-                    onDelete = {
-                        editingId = null
-                        app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.filterNot { it.id == h.id }) }
-                        scope.launch {
-                            val r = snackbar.showSnackbar("Highlight deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
-                            if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) app.library.edit(videoId) { v -> v.copy(highlights = v.highlights + h) }
-                        }
-                    },
-                    onPlay = { seek(h.startSec) },
-                    onClose = { editingId = null },
-                )
+            // Note bar for the highlight just made, or the one that was tapped.
+            val editing = video.highlights.firstOrNull { it.id == editingId }
+            // Tags and links come from the vault you save to.
+            val noteVault = settings.linkedVault(settings.vault) ?: settings.vaultFolders.keys.firstOrNull()
+            val tagPool = remember(editingId, noteVault) {
+                app.library.videos.value.flatMap { v -> v.highlights.flatMap { it.tags } }
+                    .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key } +
+                    (noteVault?.let { app.vaults.indexes.value[it]?.tags?.keys }.orEmpty())
+            }
+            AnimatedVisibility(
+                visible = editing != null,
+                enter = androidx.compose.animation.expandVertically(spring(1f, 500f)) + fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically(spring(1f, 500f)) + fadeOut(),
+            ) {
+                var last by remember { mutableStateOf(editing) }
+                if (editing != null) last = editing
+                last?.let { h ->
+                    HighlightNoteBar(
+                        h = h,
+                        onNote = { text -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(note = text) else it }) } },
+                        tags = h.tags,
+                        onTags = { t -> app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(tags = t) else it }) } },
+                        vault = noteVault,
+                        suggestTags = tagPool,
+                        onTyping = { noteFocused = it },
+                        onColor = { c ->
+                            app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.map { if (it.id == h.id) it.copy(color = c) else it }) }
+                            app.settings.update { it.copy(highlightColor = c) } // the next highlight starts with this colour
+                        },
+                        onDelete = {
+                            editingId = null
+                            app.library.edit(videoId) { v -> v.copy(highlights = v.highlights.filterNot { it.id == h.id }) }
+                            scope.launch {
+                                val r = snackbar.showSnackbar("Highlight deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                                if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) app.library.edit(videoId) { v -> v.copy(highlights = v.highlights + h) }
+                            }
+                        },
+                        onPlay = { seek(h.startSec) },
+                        onClose = { editingId = null },
+                    )
+                }
             }
         }
 
@@ -784,7 +790,10 @@ private fun SaveWhenIdle(text: String, saved: String, onSave: (String) -> Unit) 
     DisposableEffect(Unit) { onDispose { if (latest != stored) save(latest) } }
 }
 
-/** Quick note editor for one highlight: change its colour, write a note, play from it, or remove it. */
+/**
+ * Note editor for one highlight. It sits on the keyboard and pushes the text up, so the words you marked stay in view.
+ * One slim field, then one row of buttons. The colours open only when you ask.
+ */
 @Composable
 private fun HighlightNoteBar(
     h: Highlight,
@@ -802,6 +811,7 @@ private fun HighlightNoteBar(
     val scheme = MaterialTheme.colorScheme
     var text by remember(h.id) { mutableStateOf(h.note) }
     var tagMode by remember(h.id) { mutableStateOf(false) }
+    var colorOpen by remember(h.id) { mutableStateOf(false) }
     var newTag by remember(h.id) { mutableStateOf("") }
     var linking by remember(h.id) { mutableStateOf(false) }
     // True when the picker was opened by typing [[, so the typed brackets are replaced and not doubled.
@@ -812,22 +822,26 @@ private fun HighlightNoteBar(
         newTag = ""
     }
     androidx.compose.runtime.key(h.id) { SaveWhenIdle(text, h.note, onNote) }
-    Surface(
-        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        color = scheme.surfaceContainerHighest,
-        shadowElevation = 12.dp,
+    val tone = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
+    val circle = androidx.compose.foundation.shape.CircleShape
+
+    Column(
+        Modifier.fillMaxWidth().background(scheme.surfaceContainer)
+            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.6f))
+        Column(Modifier.padding(horizontal = 12.dp).padding(top = 2.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.padding(start = 4.dp).width(3.dp).height(20.dp).clip(RoundedCornerShape(2.dp)).background(tone))
                 Text(
-                    h.text, Modifier.weight(1f),
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    h.text.ifBlank { "Note at ${YouTube.formatTime(h.startSec)}" },
+                    Modifier.weight(1f).padding(horizontal = 10.dp),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
                 )
                 IconButton(onClick = { onNote(text); onClose() }) { Icon(Icons.Rounded.Check, "Done", tint = scheme.primary) }
             }
-            androidx.compose.material3.OutlinedTextField(
+            androidx.compose.foundation.text.BasicTextField(
                 value = text,
                 onValueChange = { v ->
                     // Typing [[ opens the note picker, like in Obsidian.
@@ -835,10 +849,19 @@ private fun HighlightNoteBar(
                     text = v
                 },
                 modifier = Modifier.fillMaxWidth().onFocusChanged { onTyping(it.isFocused) },
-                placeholder = { Text(if (vault != null) "Add a note. Type [[ to link a note" else "Add a note") },
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(scheme.primary),
                 minLines = 1,
-                maxLines = 4,
-                shape = RoundedCornerShape(18.dp),
+                maxLines = 3,
+                decorationBox = { inner ->
+                    Box(Modifier.fillMaxWidth().background(scheme.surfaceContainerHighest, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                        if (text.isEmpty()) Text(
+                            if (vault != null) "Add a note. Type [[ to link" else "Add a note",
+                            style = MaterialTheme.typography.bodyLarge, color = scheme.outline,
+                        )
+                        inner()
+                    }
+                },
             )
             if (tags.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -860,17 +883,23 @@ private fun HighlightNoteBar(
                     items(near, key = { "nt$it" }) { s -> androidx.compose.material3.FilterChip(selected = false, onClick = { addTag(s) }, label = { Text("#$s") }) }
                 }
             }
+            if (colorOpen) ColorDots(h.color, Modifier.fillMaxWidth()) { onColor(it); colorOpen = false }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // On a narrow phone the dots scroll, so the buttons at the end never fall off the bar.
-                ColorDots(h.color, Modifier.weight(1f).horizontalScroll(rememberScrollState()), onColor)
+                Box(
+                    Modifier.size(40.dp).clip(circle).clickable(onClickLabel = "Change the colour") { colorOpen = !colorOpen },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(Modifier.size(22.dp).clip(circle).background(tone).border(2.dp, scheme.onSurface.copy(alpha = if (colorOpen) 0.9f else 0.35f), circle))
+                }
                 IconButton(onClick = { tagMode = !tagMode }, Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Sell, "Tags", tint = if (tagMode || tags.isNotEmpty()) scheme.primary else scheme.onSurfaceVariant)
                 }
                 if (vault != null) IconButton(onClick = { linkTyped = false; linking = true }, Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Link, "Link a note", tint = scheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onPlay, Modifier.size(40.dp)) { Icon(Icons.Rounded.PlayArrow, "Play from here") }
-                IconButton(onClick = onDelete, Modifier.size(40.dp)) { Icon(Icons.Rounded.Delete, "Remove highlight") }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onPlay, Modifier.size(40.dp)) { Icon(Icons.Rounded.PlayArrow, "Play from here", tint = scheme.onSurfaceVariant) }
+                IconButton(onClick = onDelete, Modifier.size(40.dp)) { Icon(Icons.Rounded.Delete, "Remove highlight", tint = scheme.onSurfaceVariant) }
             }
         }
     }
