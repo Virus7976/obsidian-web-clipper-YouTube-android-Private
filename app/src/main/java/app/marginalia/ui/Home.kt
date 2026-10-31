@@ -216,7 +216,8 @@ fun HomeScreen(
                     val highlightCount = videos.sumOf { v -> v.highlights.count { it.text.isNotBlank() || it.note.isNotBlank() } }
                     androidx.compose.material3.AssistChip(
                         onClick = nav.openHighlights,
-                        label = { Text("Highlights" + if (highlightCount > 0) " · $highlightCount" else "") },
+                        // Short on purpose, so it sits on the same row as the tabs.
+        label = { Text(if (highlightCount > 0) "$highlightCount" else "Highlights") },
                         leadingIcon = { Icon(Icons.Rounded.Highlight, null, Modifier.size(18.dp)) },
                     )
                 }
@@ -578,7 +579,7 @@ private fun PlaylistCard(p: Playlist, videos: List<SavedVideo>, onClick: () -> U
     val firstId = p.videoIds.firstOrNull()
     val thumb = p.videoIds.firstNotNullOfOrNull { id -> videos.firstOrNull { it.meta.id == id } }?.meta?.thumb
         ?: firstId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
-    Column(Modifier.width(168.dp).clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick)) {
+    Column(Modifier.width(168.dp).clickable(onClick = onClick)) {
         if (thumb != null) AsyncImage(
             model = thumb, contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f).clip(RoundedCornerShape(18.dp)),
