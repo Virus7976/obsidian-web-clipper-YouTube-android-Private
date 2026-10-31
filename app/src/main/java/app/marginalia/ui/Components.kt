@@ -215,6 +215,8 @@ fun WavySeekBar(
     playing: Boolean,
     onSeek: (Double) -> Unit,
     modifier: Modifier = Modifier,
+    /** While the source loads, the wave itself moves along. No second bar. */
+    loading: Boolean = false,
 ) {
     var width by remember { mutableIntStateOf(1) }
     var dragging by remember { mutableStateOf<Float?>(null) }
@@ -243,7 +245,8 @@ fun WavySeekBar(
             },
         contentAlignment = Alignment.Center,
     ) {
-        LinearWavyProgressIndicator(
+        if (loading) LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+        else LinearWavyProgressIndicator(
             progress = { shown },
             modifier = Modifier.fillMaxWidth(),
             amplitude = { if (playing) 1f else 0f },

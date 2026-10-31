@@ -81,6 +81,9 @@ private val SmallRow = 64.dp
 private val Controls = 96.dp
 private val Speeds = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.75f)
 
+/** True while a source is loading or the player is catching up, and there is no error to show instead. */
+private val PlayerState.waiting get() = error == null && (loading || (buffering && !playing))
+
 private fun nextSpeed(now: Float) = Speeds[(Speeds.indexOf(now).let { if (it < 0) 0 else it } + 1) % Speeds.size]
 private fun speedLabel(s: Float) = "${s}x".replace(".0x", "x")
 
@@ -127,7 +130,8 @@ fun ReaderHeader(
         // In landscape a full width picture would fill the screen, so it stops at 40 percent.
         val videoHeight = if (picture) min(width * 9f / 16f, screen * 0.4f) else 0.dp
         val openTop = if (picture) 0.dp else TopRow
-        val open = if (picture) videoHeight else TopRow + Controls
+        // The 3dp under the picture is the thin progress line, so you can see how much is left with the buttons hidden.
+        val open = if (picture) videoHeight + 3.dp else TopRow + Controls
         val tap = remember { MutableInteractionSource() }
 
         Box(Modifier.fillMaxWidth().height(lerp(open, SmallRow, t))) {
@@ -191,9 +195,10 @@ fun ReaderHeader(
 
             if (!picture && t < 1f) Column(
                 Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (1f - t * 2f).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
-            ) { PlayerControls(ps, host, showBar = waiting) }
+            ) { PlayerControls(ps, host) }
         }
-        if (t > 0f) SmallProgress(ps, Modifier.align(Alignment.BottomStart).graphicsLayer { alpha = t })
+        // One bar at a time: while the buttons are on the picture they have the seek bar, so this line waits.
+        if ((picture && !(shown || !playing)) || t > 0f) SmallProgress(ps, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
     }
 }
 
@@ -245,6 +250,7 @@ private fun PictureButtons(
             WavySeekBar(
                 ps.value.positionSec, ps.value.durationSec, ps.value.playing,
                 onSeek = { host.seekTo(it); onPoke() }, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                loading = ps.value.waiting,
             )
             Text(YouTube.formatTime(ps.value.durationSec), style = MaterialTheme.typography.labelMedium, color = Color.White)
         }
@@ -262,12 +268,15 @@ private fun OverlayButton(description: String, onClick: () -> Unit, content: @Co
 
 /** The controls under a slim top row, for listening: the seek bar with its times, then the buttons, centred. */
 @Composable
-private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, showBar: Boolean) {
+private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost) {
     val scheme = MaterialTheme.colorScheme
     var showLeft by rememberSaveable { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(YouTube.formatTime(ps.value.positionSec), Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
-        WavySeekBar(ps.value.positionSec, ps.value.durationSec, ps.value.playing, onSeek = { host.seekTo(it) }, modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
+        WavySeekBar(
+            ps.value.positionSec, ps.value.durationSec, ps.value.playing, onSeek = { host.seekTo(it) },
+            modifier = Modifier.weight(1f).padding(horizontal = 4.dp), loading = ps.value.waiting,
+        )
         // Tap the time to see what is left.
         Text(
             if (showLeft) "-" + YouTube.formatTime((ps.value.durationSec - ps.value.positionSec).coerceAtLeast(0.0)) else YouTube.formatTime(ps.value.durationSec),
@@ -286,7 +295,6 @@ private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, showBar: Bo
             }
         }
     }
-    if (showBar) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 4.dp))
 }
 
 @Composable
@@ -297,12 +305,12 @@ private fun SmallTime(ps: State<PlayerState>, modifier: Modifier) {
     )
 }
 
-/** A thin line along the bottom of the folded row: how far along the video is. */
+/** A thin line along the bottom edge of the player: how far along the video is. */
 @Composable
-private fun SmallProgress(ps: State<PlayerState>, modifier: Modifier) {
+private fun SmallProgress(ps: State<PlayerState>, modifier: Modifier, thick: androidx.compose.ui.unit.Dp = 2.dp) {
     val s = ps.value
     val frac = if (s.durationSec > 0) (s.positionSec / s.durationSec).toFloat().coerceIn(0f, 1f) else 0f
-    Box(modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))) {
-        Box(Modifier.fillMaxWidth(frac).height(2.dp).background(MaterialTheme.colorScheme.primary))
+    Box(modifier.fillMaxWidth().height(thick).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
+        Box(Modifier.fillMaxWidth(frac).height(thick).background(MaterialTheme.colorScheme.primary))
     }
 }
