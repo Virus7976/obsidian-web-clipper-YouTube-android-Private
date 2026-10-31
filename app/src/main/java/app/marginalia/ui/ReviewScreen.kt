@@ -1,6 +1,7 @@
 package app.marginalia.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -107,6 +108,11 @@ fun ReviewScreen(onBack: () -> Unit) {
         }
     }
 
+    val item = batch.getOrNull(at)
+    // The next card eases in, so a swipe never ends with a hard cut.
+    val arrive = remember(at) { Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(at) { arrive.animateTo(1f, androidx.compose.animation.core.tween(340, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
@@ -120,7 +126,6 @@ fun ReviewScreen(onBack: () -> Unit) {
             progress = { at.toFloat() / batch.size }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(4.dp),
         )
 
-        val item = batch.getOrNull(at)
         if (item == null) {
             Box(Modifier.weight(1f).fillMaxWidth()) { Done(
                 kept = kept, dropped = dropped, hadAny = batch.isNotEmpty(),
@@ -131,8 +136,8 @@ fun ReviewScreen(onBack: () -> Unit) {
             ) }
         } else {
             val h = item.highlight
-            val bar = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
-            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), contentAlignment = Alignment.Center) {
+            val tone = HighlightColors.getOrNull(h.color)?.ui?.let { Color(it) } ?: scheme.primary
+            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
                 // A quiet cue behind the card: a check on the left for keep, a cross on the right for drop.
                 // It fades in as you drag and fills in when letting go would count.
                 val pull = (abs(offset.value) / (width * 0.28f)).coerceIn(0f, 1f)
@@ -153,11 +158,21 @@ fun ReviewScreen(onBack: () -> Unit) {
                         tint = if (armed) (if (keeping) scheme.onPrimary else scheme.surface) else scheme.onSurfaceVariant,
                     )
                 }
+                val quote = h.text.ifBlank { h.note }
+                val long = quote.length > 220
                 Surface(
-                    shape = RoundedCornerShape(28.dp), color = scheme.surfaceContainer,
+                    shape = RoundedCornerShape(32.dp), color = scheme.surfaceContainerHigh,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.6f)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer { translationX = offset.value; rotationZ = offset.value / 40f; alpha = 1f - 0.2f * pull }
+                        .graphicsLayer {
+                            val e = arrive.value
+                            translationX = offset.value
+                            rotationZ = offset.value / 40f
+                            alpha = (0.35f + 0.65f * e) * (1f - 0.2f * pull)
+                            scaleX = 0.94f + 0.06f * e
+                            scaleY = 0.94f + 0.06f * e
+                        }
                         .pointerInput(at) {
                             detectHorizontalDragGestures(
                                 onDragEnd = {
@@ -169,42 +184,48 @@ fun ReviewScreen(onBack: () -> Unit) {
                             )
                         },
                 ) {
-                    Row(Modifier.fillMaxWidth()) {
-                        Box(Modifier.width(6.dp).fillMaxHeight().background(bar))
-                        Column(Modifier.weight(1f).padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            if (h.text.isNotBlank()) Text(
-                                h.text,
-                                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily(Font(R.font.newsreader)), lineHeight = 34.sp),
-                                maxLines = 12, overflow = TextOverflow.Ellipsis,
-                            )
-                            if (h.note.isNotBlank()) Text(
-                                h.note, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant,
-                                maxLines = 8, overflow = TextOverflow.Ellipsis,
-                            )
+                    Column(Modifier.padding(horizontal = 28.dp, vertical = 30.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(tone))
+                            Spacer(Modifier.width(10.dp))
                             Text(
-                                item.video.meta.title + "  ·  " + YouTube.formatTime(h.startSec),
-                                style = MaterialTheme.typography.labelLarge, color = scheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                item.video.meta.title, Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
+                        }
+                        Text(
+                            quote,
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontFamily = FontFamily(Font(R.font.newsreader)),
+                                fontSize = if (long) 21.sp else 27.sp, lineHeight = if (long) 31.sp else 39.sp,
+                            ),
+                            maxLines = 14, overflow = TextOverflow.Ellipsis,
+                        )
+                        if (h.text.isNotBlank() && h.note.isNotBlank()) Text(
+                            h.note, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
+                            maxLines = 6, overflow = TextOverflow.Ellipsis,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(YouTube.formatTime(h.startSec), style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                             TextButton(onClick = {
                                 app.library.edit(item.video.meta.id) { it.copy(positionSec = h.startSec) }
                                 if (app.player.state.value.videoId == item.video.meta.id) app.player.seekTo(h.startSec)
                                 app.pendingSeek.value = item.video.meta.id to h.startSec
                                 nav.openVideo(item.video.meta.id)
                             }) {
-                                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Open where it came from")
+                                Text("Open", color = scheme.onSurfaceVariant)
+                                Spacer(Modifier.width(6.dp))
+                                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(16.dp), tint = scheme.onSurfaceVariant)
                             }
                         }
                     }
                 }
             }
-            Text(
-                "Swipe right to keep it, left to drop it", Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = { decide(false) }, modifier = Modifier.weight(1f).height(56.dp), shapes = ButtonDefaults.shapes()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { decide(false) }, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(50),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outline),
+                ) {
                     Icon(Icons.Rounded.Close, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Drop")
                 }
                 Button(onClick = { decide(true) }, modifier = Modifier.weight(1f).height(56.dp), shapes = ButtonDefaults.shapes()) {
@@ -217,29 +238,43 @@ fun ReviewScreen(onBack: () -> Unit) {
                     app.reviews.later(h.id)
                     at++
                 },
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
-            ) { Text("Not now, ask me tomorrow") }
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) { Text("Not now, ask me tomorrow", color = scheme.onSurfaceVariant) }
         }
 
-        // Undo stays for a few seconds after every swipe.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = last != null,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { it / 2 },
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
-        ) {
-            val u = last
-            Surface(shape = RoundedCornerShape(50), color = scheme.inverseSurface) {
-                Row(Modifier.padding(start = 20.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(u?.what.orEmpty(), color = scheme.inverseOnSurface, style = MaterialTheme.typography.labelLarge)
-                    TextButton(onClick = {
-                        u?.let { x ->
-                            app.reviews.restore(x.id, x.previous)
-                            at = x.index
-                            when (x.what) { "Kept" -> kept = (kept - 1).coerceAtLeast(0); "Dropped" -> dropped = (dropped - 1).coerceAtLeast(0) }
+        // One fixed strip at the bottom. The hint sits in it, and Undo takes its place after a swipe.
+        // It never changes height, so nothing above it moves.
+        Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.animation.AnimatedContent(
+                targetState = last,
+                transitionSpec = {
+                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240)) +
+                        androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(240), initialScale = 0.9f)) togetherWith
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(140))
+                },
+                label = "undo",
+            ) { u ->
+                if (u != null) {
+                    Surface(
+                        shape = RoundedCornerShape(50), color = scheme.surfaceContainerHighest,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.6f)),
+                    ) {
+                        Row(Modifier.padding(start = 20.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(u.what, color = scheme.onSurface, style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.width(6.dp))
+                            TextButton(onClick = {
+                                app.reviews.restore(u.id, u.previous)
+                                at = u.index
+                                when (u.what) { "Kept" -> kept = (kept - 1).coerceAtLeast(0); "Dropped" -> dropped = (dropped - 1).coerceAtLeast(0) }
+                                last = null
+                            }) { Text("Undo", color = scheme.primary) }
                         }
-                        last = null
-                    }) { Text("Undo", color = scheme.inversePrimary) }
+                    }
+                } else if (item != null) {
+                    Text(
+                        "Swipe right to keep, left to drop",
+                        style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
                 }
             }
         }
