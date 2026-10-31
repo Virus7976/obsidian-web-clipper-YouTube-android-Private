@@ -3,6 +3,12 @@ package app.marginalia.ui
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -31,7 +37,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Videocam
@@ -66,6 +73,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -105,8 +116,8 @@ fun ReaderHeader(
     onBack: () -> Unit,
     searching: Boolean,
     onFind: () -> Unit,
-    showSync: Boolean,
-    onSync: () -> Unit,
+    pinned: Boolean,
+    onPin: () -> Unit,
     menuOpen: Boolean,
     onMenu: (Boolean) -> Unit,
     menuItems: @Composable ColumnScope.() -> Unit,
@@ -128,15 +139,18 @@ fun ReaderHeader(
         val width = maxWidth
         val screen = LocalConfiguration.current.screenHeightDp.dp
         // In landscape a full width picture would fill the screen, so it stops at 40 percent.
-        val videoHeight = if (picture) min(width * 9f / 16f, screen * 0.4f) else 0.dp
-        val openTop = if (picture) 0.dp else TopRow
+        val fullHeight = min(width * 9f / 16f, screen * 0.4f)
+        val videoHeight by animateDpAsState(if (picture) fullHeight else 0.dp, spring(1f, 450f), label = "picture")
+        val openTop = 0.dp
         // The 3dp under the picture is the thin progress line, so you can see how much is left with the buttons hidden.
-        val open = if (picture) videoHeight + 3.dp else TopRow + Controls
+        val openTarget = if (picture) fullHeight + 3.dp else TopRow + Controls
+        val open by animateDpAsState(openTarget, spring(1f, 450f), label = "open")
         val tap = remember { MutableInteractionSource() }
 
         Box(Modifier.fillMaxWidth().height(lerp(open, SmallRow, t))) {
-            if (!picture || t > 0f) Row(
-                Modifier.fillMaxWidth().height(lerp(TopRow, SmallRow, t)).graphicsLayer { alpha = if (picture) t else 1f }.padding(horizontal = 4.dp),
+            val rowAlpha by animateFloatAsState(if (!picture) 1f else t, tween(220), label = "rowAlpha")
+            if (rowAlpha > 0f) Row(
+                Modifier.fillMaxWidth().height(lerp(TopRow, SmallRow, t)).graphicsLayer { alpha = rowAlpha }.padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
@@ -148,7 +162,6 @@ fun ReaderHeader(
                     Text(video.meta.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (t > 0f) SmallTime(ps, Modifier.graphicsLayer { alpha = t })
                 }
-                if (showSync) IconButton(onClick = onSync) { Icon(Icons.Rounded.MyLocation, "Sync to where it is", tint = scheme.primary) }
                 if (collapsed) MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 40.dp)
                 else IconButton(onClick = onFind) { Icon(Icons.Rounded.Search, "Find in this video", tint = if (searching) scheme.primary else scheme.onSurface) }
                 Box {
@@ -164,7 +177,7 @@ fun ReaderHeader(
                     .background(Color.Black).clipToBounds(),
                 contentAlignment = Alignment.Center,
             ) {
-                if (picture) AndroidView(
+                if (picture || videoHeight > 1.dp) AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { c ->
                         PlayerView(c).apply {
@@ -182,19 +195,24 @@ fun ReaderHeader(
                         onClickLabel = if (collapsed) "Show the player" else "Show the buttons",
                     ) { if (collapsed) onExpand() else shown = !shown },
                 )
-                if (picture && t < 0.5f) AnimatedVisibility(
-                    visible = shown || !playing, enter = fadeIn(), exit = fadeOut(),
-                    modifier = Modifier.graphicsLayer { alpha = 1f - t * 2f },
-                ) {
-                    PictureButtons(
-                        ps, host, onBack, onFind, menuOpen, onMenu, menuItems,
-                        onHide = { shown = false }, onPoke = { pokes++ },
-                    )
+                if (picture && t < 0.5f) {
+                    val on = shown || !playing
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - t * 2f }) {
+                        AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300))) {
+                            Box(Modifier.fillMaxSize().background(Color(0x55000000)).clickable(remember { MutableInteractionSource() }, null, onClickLabel = "Hide the buttons") { shown = false })
+                        }
+                        // Always there, so the menu never leaves while you use it.
+                        PictureTopButtons(ps, host, onBack, onFind, pinned, onPin, menuOpen, onMenu, menuItems, onPoke = { pokes++ })
+                        AnimatedVisibility(visible = on, enter = fadeIn(tween(200)), exit = fadeOut(tween(300)), modifier = Modifier.fillMaxSize()) {
+                            PictureCentre(ps, host, onPoke = { pokes++ })
+                        }
+                    }
                 }
             }
 
-            if (!picture && t < 1f) Column(
-                Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (1f - t * 2f).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
+            val ctlAlpha by animateFloatAsState(if (picture) 0f else 1f, tween(220), label = "ctlAlpha")
+            if (ctlAlpha > 0f && t < 1f) Column(
+                Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (ctlAlpha * (1f - t * 2f)).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
             ) { PlayerControls(ps, host) }
         }
         // One bar at a time: while the buttons are on the picture they have the seek bar, so this line waits.
@@ -202,41 +220,47 @@ fun ReaderHeader(
     }
 }
 
-/** The buttons that sit on the picture: back and the small choices on top, play and skip in the middle, the seek bar below. */
+/** Back and the small choices, along the top of the picture. They stay while the rest hides. */
 @Composable
-private fun PictureButtons(
+private fun PictureTopButtons(
     ps: State<PlayerState>,
     host: PlayerHost,
     onBack: () -> Unit,
     onFind: () -> Unit,
+    pinned: Boolean,
+    onPin: () -> Unit,
     menuOpen: Boolean,
     onMenu: (Boolean) -> Unit,
     menuItems: @Composable ColumnScope.() -> Unit,
-    onHide: () -> Unit,
     onPoke: () -> Unit,
 ) {
-    Box(
-        Modifier.fillMaxSize().background(Color(0x66000000))
-            .clickable(remember { MutableInteractionSource() }, null, onClickLabel = "Hide the buttons") { onHide() },
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OverlayButton("Back", onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, Modifier.size(22.dp), tint = Color.White) }
-            Spacer(Modifier.weight(1f))
-            OverlayButton("Speed", { host.setSpeed(nextSpeed(ps.value.speed)); onPoke() }) {
-                Text(speedLabel(ps.value.speed), style = MaterialTheme.typography.labelLarge, color = Color.White)
-            }
-            if (ps.value.canWatch) OverlayButton("Hide the video", { host.setVideo(false) }) {
-                Icon(Icons.Rounded.Headphones, null, Modifier.size(22.dp), tint = Color.White)
-            }
-            OverlayButton("Find in this video", { onFind(); onHide() }) { Icon(Icons.Rounded.Search, null, Modifier.size(22.dp), tint = Color.White) }
-            Box {
-                OverlayButton("More", { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, null, Modifier.size(22.dp), tint = Color.White) }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenu(false) }, content = menuItems)
-            }
+        OverlayButton("Back", onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, Modifier.size(22.dp), tint = Color.White) }
+        Spacer(Modifier.weight(1f))
+        OverlayButton("Speed", { host.setSpeed(nextSpeed(ps.value.speed)); onPoke() }) {
+            Text(speedLabel(ps.value.speed), style = MaterialTheme.typography.labelLarge, color = Color.White)
         }
+        OverlayButton(if (pinned) "Let the video fold when you scroll" else "Keep the video big when you scroll", onPin) {
+            Icon(if (pinned) Icons.Rounded.PushPin else Icons.Outlined.PushPin, null, Modifier.size(22.dp), tint = if (pinned) MaterialTheme.colorScheme.primary else Color.White)
+        }
+        if (ps.value.canWatch) OverlayButton("Hide the video", { host.setVideo(false) }) {
+            Icon(Icons.Rounded.Headphones, null, Modifier.size(22.dp), tint = Color.White)
+        }
+        OverlayButton("Find in this video", { onFind() }) { Icon(Icons.Rounded.Search, null, Modifier.size(22.dp), tint = Color.White) }
+        Box {
+            OverlayButton("More", { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, null, Modifier.size(22.dp), tint = Color.White) }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenu(false) }, content = menuItems)
+        }
+    }
+}
+
+/** Play, skip and the seek bar. They fade out by themselves while the video plays. */
+@Composable
+private fun PictureCentre(ps: State<PlayerState>, host: PlayerHost, onPoke: () -> Unit) {
+    Box(Modifier.fillMaxSize()) {
         Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { host.skip(-10.0); onPoke() }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds", Modifier.size(32.dp), tint = Color.White) }
             MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle(); onPoke() }, size = 56.dp)
@@ -247,10 +271,10 @@ private fun PictureButtons(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(YouTube.formatTime(ps.value.positionSec), style = MaterialTheme.typography.labelMedium, color = Color.White)
-            WavySeekBar(
-                ps.value.positionSec, ps.value.durationSec, ps.value.playing,
+            SlimSeekBar(
+                ps.value.positionSec, ps.value.durationSec,
                 onSeek = { host.seekTo(it); onPoke() }, modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                loading = ps.value.waiting,
+                loading = ps.value.waiting, onLight = true,
             )
             Text(YouTube.formatTime(ps.value.durationSec), style = MaterialTheme.typography.labelMedium, color = Color.White)
         }
@@ -273,8 +297,8 @@ private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost) {
     var showLeft by rememberSaveable { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(YouTube.formatTime(ps.value.positionSec), Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
-        WavySeekBar(
-            ps.value.positionSec, ps.value.durationSec, ps.value.playing, onSeek = { host.seekTo(it) },
+        SlimSeekBar(
+            ps.value.positionSec, ps.value.durationSec, onSeek = { host.seekTo(it) },
             modifier = Modifier.weight(1f).padding(horizontal = 4.dp), loading = ps.value.waiting,
         )
         // Tap the time to see what is left.
@@ -312,5 +336,45 @@ private fun SmallProgress(ps: State<PlayerState>, modifier: Modifier, thick: and
     val frac = if (s.durationSec > 0) (s.positionSec / s.durationSec).toFloat().coerceIn(0f, 1f) else 0f
     Box(modifier.fillMaxWidth().height(thick).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))) {
         Box(Modifier.fillMaxWidth(frac).height(thick).background(MaterialTheme.colorScheme.primary))
+    }
+}
+
+/** One slim seek bar, the same line that shows under the picture. Tap or drag to move. */
+@Composable
+fun SlimSeekBar(
+    positionSec: Double,
+    durationSec: Double,
+    onSeek: (Double) -> Unit,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+    onLight: Boolean = false,
+) {
+    var width by remember { mutableIntStateOf(1) }
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val frac = if (durationSec > 0) (positionSec / durationSec).toFloat().coerceIn(0f, 1f) else 0f
+    val shown = dragging ?: frac
+    val scheme = MaterialTheme.colorScheme
+    val pulse by rememberInfiniteTransition(label = "wait").animateFloat(
+        0.35f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "waitAlpha",
+    )
+    val track = if (onLight) Color.White.copy(alpha = 0.3f) else scheme.outlineVariant.copy(alpha = 0.6f)
+    Box(
+        modifier.fillMaxWidth().height(32.dp)
+            .onSizeChanged { width = it.width.coerceAtLeast(1) }
+            .pointerInput(durationSec) { detectTapGestures { o -> if (durationSec > 0) onSeek(o.x / width * durationSec) } }
+            .pointerInput(durationSec) {
+                detectHorizontalDragGestures(
+                    onDragStart = { o -> dragging = (o.x / width).coerceIn(0f, 1f) },
+                    onDragEnd = { dragging?.let { if (durationSec > 0) onSeek(it * durationSec) }; dragging = null },
+                    onDragCancel = { dragging = null },
+                    onHorizontalDrag = { change, _ -> dragging = (change.position.x / width).coerceIn(0f, 1f) },
+                )
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(Modifier.fillMaxWidth().height(3.dp).background(track)) {
+            Box(Modifier.fillMaxWidth(shown).height(3.dp).graphicsLayer { alpha = if (loading) pulse else 1f }.background(scheme.primary))
+        }
+        if (dragging != null) Box(Modifier.offset { androidx.compose.ui.unit.IntOffset((shown * width).toInt() - 6.dp.roundToPx(), 0) }.size(12.dp).clip(CircleShape).background(scheme.primary))
     }
 }

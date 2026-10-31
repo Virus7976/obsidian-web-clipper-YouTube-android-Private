@@ -178,6 +178,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     var headerHidden by remember { mutableStateOf(false) }
     // The player folds into one row while you read, so the text gets the screen.
     var collapsed by remember(videoId) { mutableStateOf(false) }
+    // Pinned: the big picture stays while you scroll.
+    var pinned by remember(videoId) { mutableStateOf(false) }
     val pulled = remember { intArrayOf(0) }
     val foldAfter = with(LocalDensity.current) { 48.dp.roundToPx() }
     // Full screen reading: no top row, player, bottom bar, status bar or navigation bar.
@@ -364,8 +366,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 video = video, ps = ps, host = app.player,
                 collapsed = collapsed, onExpand = { collapsed = false }, onBack = onBack,
                 searching = searching, onFind = { searching = !searching },
-                showSync = away && settings.autoScroll && editingId == null,
-                onSync = { tview?.resync(activeWord); away = false },
+                pinned = pinned, onPin = { pinned = !pinned; if (pinned) collapsed = false },
                 menuOpen = menu, onMenu = { menu = it },
             ) {
                 DropdownMenuItem(
@@ -466,7 +467,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             tv.onUserScroll = { dy, atTop ->
                                 if (dy > 6) headerHidden = true else if (dy < -6) headerHidden = false
                                 if (atTop) { collapsed = false; pulled[0] = 0 }
-                                else if (dy > 0) { pulled[0] += dy; if (pulled[0] > foldAfter) collapsed = true }
+                                else if (dy > 0 && !pinned) { pulled[0] += dy; if (pulled[0] > foldAfter) collapsed = true }
                                 else pulled[0] = 0
                             }
                             tv.currentColor = settings.highlightColor
@@ -575,6 +576,23 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                         Text("Clip")
                     }
                 }
+            }
+        }
+
+        // Shows whenever you have scrolled away from the spot that is being read.
+        val bottomGap by androidx.compose.animation.core.animateDpAsState(
+            if (!headerHidden && !immersive && editingId == null) 76.dp else 16.dp, spring(1f, 500f), label = "syncGap",
+        )
+        AnimatedVisibility(
+            visible = away && settings.autoScroll && editingId == null,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = bottomGap),
+            enter = fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.85f),
+        ) {
+            FilledTonalButton(onClick = { tview?.resync(activeWord); away = false }, shapes = ButtonDefaults.shapes()) {
+                Icon(Icons.Rounded.MyLocation, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Back to now")
             }
         }
 
