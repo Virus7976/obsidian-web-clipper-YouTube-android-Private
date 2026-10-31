@@ -455,15 +455,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                         },
                     )
                 } else if (status == Status.Failed) {
-                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("No transcript", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            failure ?: "YouTube did not give us captions for this video.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = scheme.onSurfaceVariant,
-                        )
-                        Button(onClick = { retry++ }, shapes = ButtonDefaults.shapes()) { Text("Try again") }
-                    }
+                    SongNotes(video, failure, ps.value.positionSec, onSeek = { seek(it) }, onRetry = { retry++ })
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
                 }

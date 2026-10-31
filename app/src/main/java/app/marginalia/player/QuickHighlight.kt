@@ -1,7 +1,9 @@
 package app.marginalia.player
 
 import app.marginalia.MarginaliaApp
+import app.marginalia.data.Highlight
 import app.marginalia.data.Highlights
+import app.marginalia.data.YouTube
 import app.marginalia.data.TranscriptDoc
 
 /**
@@ -14,7 +16,14 @@ object QuickHighlight {
         val ps = app.player.state.value
         val id = ps.videoId ?: return "Nothing is playing."
         val video = app.library.get(id) ?: return "This video is not in your library."
-        val transcript = app.library.loadTranscript(id) ?: return "This video has no transcript."
+        val transcript = app.library.loadTranscript(id)
+        if (transcript == null) {
+            // No captions, for example a song. Keep the moment, so a note can be added to it later.
+            val t = ps.positionSec
+            val mark = Highlight(java.util.UUID.randomUUID().toString(), t, t, "", "", app.settings.value.highlightColor)
+            app.library.edit(id) { it.copy(highlights = it.highlights + mark) }
+            return "Marked " + YouTube.formatTime(t) + "."
+        }
         val s = app.settings.value
         val doc = TranscriptDoc.build(transcript.cues, video.chapters, s.lineLength, s.showTimestamps)
         val w = doc.wordAtTime(ps.positionSec)

@@ -34,6 +34,11 @@ object NoteBuilder {
     }
 
     fun highlightEntry(video: SavedVideo, h: app.marginalia.data.Highlight, settings: AppSettings): String {
+        // A note with no highlighted words, such as one written while a song plays.
+        if (h.text.isBlank()) {
+            val note = h.note.replace(Regex("\\s*\\n\\s*"), " ").trim()
+            return "- [" + YouTube.formatTime(h.startSec) + "](" + timeLink(video.meta.id, h.startSec) + ")" + if (note.isEmpty()) "" else " $note"
+        }
         val body = settings.highlightFormat
             .replace("{text}", styled(h, settings))
             .replace("{time}", YouTube.formatTime(h.startSec))
