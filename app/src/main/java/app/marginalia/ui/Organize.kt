@@ -352,7 +352,7 @@ fun VideoActionsSheet(videoId: String, inPlaylist: Boolean = false, pending: Vid
                     ListRow(Icons.Rounded.Add, "Move to library") { app.library.edit(videoId) { it.copy(playlistId = "") }; onDismiss() }
                 }
                 RowDivider()
-                ListRow(Icons.Rounded.Delete, "Remove from Marginalia", scheme.error) { confirmRemove = true }
+                ListRow(Icons.Rounded.Delete, "Remove from ObsiTube", scheme.error) { confirmRemove = true }
             }
         }
     }

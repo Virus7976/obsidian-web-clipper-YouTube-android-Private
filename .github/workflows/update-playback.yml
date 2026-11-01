@@ -62,7 +62,7 @@ jobs:
           new="${old%.*}.$(( ${old##*.} + 1 ))"
           sed -i "s|versionName = \"$old\"|versionName = \"$new\"|; s|versionCode = $code|versionCode = $(( code + 1 ))|" app/build.gradle.kts
           cat > "docs/releases/v${new}.md" <<NOTES
-          ## Marginalia ${new}
+          ## ObsiTube ${new}
 
           Playback fix. The stream finder (NewPipe Extractor) moved from ${{ steps.ver.outputs.current }} to ${{ steps.ver.outputs.latest }}.
           This release was made by the daily playback workflow after the tests and a full build passed.
@@ -73,7 +73,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/build.gradle.kts "docs/releases/v${new}.md"
           git commit -m "Playback: NewPipe Extractor ${{ steps.ver.outputs.current }} to ${{ steps.ver.outputs.latest }} (v${new})"
-          git tag -a "v${new}" -m "Marginalia v${new}"
+          git tag -a "v${new}" -m "ObsiTube v${new}"
           git push origin HEAD "v${new}"
           # a tag pushed by a workflow does not start other workflows, so start the release by hand
           gh workflow run release.yml -f tag="v${new}"

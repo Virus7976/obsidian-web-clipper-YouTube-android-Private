@@ -83,6 +83,8 @@ fun OmniSheet(
     multi: Boolean = false,
     selected: Set<String> = emptySet(),
     startWith: String = "",
+    /** Only notes in this folder, when it has any. */
+    within: String = "",
 ) {
     val app = LocalApp.current
     val settings by app.settings.state.collectAsState()
@@ -104,7 +106,9 @@ fun OmniSheet(
     val results by produceState(emptyList<OmniItem>(), index, query, filter, selected) {
         delay(35)
         value = withContext(Dispatchers.Default) {
-            Omni.search(index, query, shownKinds, settings.recentTags, hide = if (multi) selected else emptySet())
+            val inside = index?.notes?.filter { within.isNotBlank() && it.path.startsWith("$within/") }.orEmpty()
+            val searched = if (inside.isEmpty()) index else index?.copy(notes = inside)
+            Omni.search(searched, query, shownKinds, settings.recentTags, hide = if (multi) selected else emptySet())
         }
     }
 
@@ -164,7 +168,7 @@ fun OmniSheet(
             val reading = busy[vault]
             when {
                 index == null && reading == null -> Text(
-                    "Marginalia has not read this vault yet. Add its folder in Settings, under Obsidian, and your notes, folders and tags show up here.",
+                    "ObsiTube has not read this vault yet. Add its folder in Settings, under Obsidian, and your notes, folders and tags show up here.",
                     Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 index == null -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {

@@ -84,6 +84,10 @@ import androidx.compose.ui.unit.sp
 import app.marginalia.data.ClipTemplate
 import app.marginalia.LockScreenActivity
 import app.marginalia.data.TemplateProperty
+import app.marginalia.data.OmniKind
+import app.marginalia.data.VaultScanner
+import app.marginalia.obsidian.Sender
+import app.marginalia.obsidian.VaultTemplate
 import app.marginalia.obsidian.ClipperExport
 import app.marginalia.update.AdbInstaller
 import app.marginalia.update.ShizukuInstaller
@@ -109,6 +113,29 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             }.onSuccess { say("Imported your clipper settings.") }.onFailure { say("That file is not a clipper settings export.") }
         }
     }
+    fun useVaultTemplate(uri: String, path: String, vault: String?) {
+        scope.launch {
+            val made = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val text = Sender.readText(ctx, uri) ?: return@withContext null
+                val tree = vault?.let { s.vaultFolders[it] }?.let(android.net.Uri::parse)
+                val types = tree?.let { VaultScanner.config(ctx, it, "types.json") }?.let(VaultTemplate::types).orEmpty()
+                VaultTemplate.read(text, path, types, s.templates.firstOrNull { it.source == path })
+            }
+            if (made == null) { say("Could not read that note."); return@launch }
+            set { st ->
+                val had = st.templates.any { it.id == made.id }
+                st.copy(templates = if (had) st.templates.map { if (it.id == made.id) made else it } else st.templates + made, selectedTemplateId = made.id)
+            }
+            onEditTemplate(made.id)
+        }
+    }
+    val templateFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            useVaultTemplate(uri.toString(), androidx.documentfile.provider.DocumentFile.fromSingleUri(ctx, uri)?.name ?: "Template.md", null)
+        }
+    }
+    // The vault and its templates folder, while the template search is open.
+    var pickTemplate by remember { mutableStateOf<Pair<String, String>?>(null) }
     var pickFor by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     // null is the menu; otherwise the id of the open screen
@@ -267,7 +294,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     )
                     Label("Accent")
                     Swatches(
-                        colors = listOf(0xFFFF6A47, 0xFFF2A93B, 0xFFB9D84A, 0xFF3DDC97, 0xFFFF5C93, 0xFFE2554F),
+                        colors = listOf(0xFFA98BFF, 0xFFFF6A47, 0xFFF2A93B, 0xFFB9D84A, 0xFF3DDC97, 0xFFFF5C93),
                         selected = s.accentOverride,
                         allowReset = true,
                         onPick = { c -> set { it.copy(accentOverride = c) } },
@@ -430,7 +457,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     }
                 }
                 Text(
-                    "Pick the folder that holds a vault. Marginalia reads your notes, folders and tags so you can pick them when you save a clip. It only reads. It writes only when you save a clip.",
+                    "Pick the folder that holds a vault. ObsiTube reads your notes, folders and tags so you can pick them when you save a clip. It only reads. It writes only when you save a clip.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FilledTonalButton(onClick = { pickFor = null; folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
@@ -560,6 +587,18 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     }, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("New template")
                     }
+                    FilledTonalButton(onClick = {
+                        val vault = s.linkedVault(s.vault) ?: s.vaultFolders.keys.firstOrNull()
+                        if (vault == null) templateFile.launch(arrayOf("text/markdown", "text/plain", "*/*"))
+                        else scope.launch {
+                            val folder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                s.vaultFolders[vault]?.let { VaultScanner.config(ctx, android.net.Uri.parse(it), "templates.json") }
+                            }?.let(VaultTemplate::folder).orEmpty()
+                            pickTemplate = vault to folder
+                        }
+                    }, shapes = ButtonDefaults.shapes()) {
+                        Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("From my vault")
+                    }
                     FilledTonalButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }, shapes = ButtonDefaults.shapes()) {
                         Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import")
                     }
@@ -573,6 +612,16 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         set { ClipperImport.apply(text, it.copy(templates = emptyList())) }
                     }.onSuccess { say("Templates reset to the bundled ones.") }
                 }) { Text("Reset templates to the bundled set") }
+                pickTemplate?.let { (vault, folder) ->
+                    OmniSheet(
+                        vault = vault, title = "Choose a template", kinds = setOf(OmniKind.Note), within = folder,
+                        onPick = { item ->
+                            pickTemplate = null
+                            app.vaults.index(vault)?.notes?.firstOrNull { it.path == item.value }?.let { useVaultTemplate(it.uri, it.path, vault) }
+                        },
+                        onDismiss = { pickTemplate = null },
+                    )
+                }
             } }
 
             // ---------- review ----------
@@ -632,7 +681,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                     Text("Display over other apps: allowed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(
-                        "Android needs one more switch. Let Marginalia display over other apps. Without it, the lock screen may not show up by itself.",
+                        "Android needs one more switch. Let ObsiTube display over other apps. Without it, the lock screen may not show up by itself.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     FilledTonalButton(onClick = {
@@ -673,7 +722,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             // ---------- advanced ----------
             if (show("advanced", SettingsKeys.advanced)) item { Group("Advanced") {
                 Text(
-                    "Marginalia reads captions the way YouTube's own phone apps do. If captions ever stop loading, a newer client version below usually fixes it.",
+                    "ObsiTube reads captions the way YouTube's own phone apps do. If captions ever stop loading, a newer client version below usually fixes it.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
@@ -820,7 +869,7 @@ private fun UpdateGroup(s: app.marginalia.data.AppSettings, set: ((app.marginali
         }
         if (!up.canInstall()) {
             Text(
-                "Android must allow Marginalia to install apps. You are asked once, when you tap Install.",
+                "Android must allow ObsiTube to install apps. You are asked once, when you tap Install.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -836,7 +885,7 @@ private fun UpdateGroup(s: app.marginalia.data.AppSettings, set: ((app.marginali
                 when {
                     !running -> "Shizuku is not running. Start it, then come back."
                     ShizukuInstaller.allowed() -> "Shizuku is ready. Updates install without a prompt."
-                    else -> "Shizuku is running. Allow Marginalia once."
+                    else -> "Shizuku is running. Allow ObsiTube once."
                 },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

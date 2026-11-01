@@ -42,7 +42,7 @@ object Sender {
 
     fun copy(context: Context, text: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("Marginalia note", text))
+        cm.setPrimaryClip(ClipData.newPlainText("ObsiTube note", text))
     }
 
     fun copyToClipboard(context: Context, note: BuiltNote): SendResult {

@@ -112,7 +112,7 @@ object ObsidianText {
             }
             i++
         }
-        val source = Regex("^source\\s*:\\s*(.+)$", RegexOption.MULTILINE).find(fm)?.groupValues?.get(1)?.trim()?.trim('"', '\'') ?: ""
+        val source = Regex("^(?:source|url)\\s*:\\s*(.+)$", RegexOption.MULTILINE).find(fm)?.groupValues?.get(1)?.trim()?.trim('"', '\'') ?: ""
 
         val plain = body.replace(codeFence, " ").replace(inlineCode, " ")
         inlineTag.findAll(plain).forEach { add(it.groupValues[1]) }
@@ -207,6 +207,12 @@ object VaultScanner {
         onProgress(notes.size)
         return VaultIndex(vault, System.currentTimeMillis(), notes, folders.sorted())
     }
+
+    /** A file from the vault's .obsidian folder, which the scan skips. Null when it is not there. */
+    fun config(context: Context, tree: Uri, name: String): String? = runCatching {
+        val file = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, tree)?.findFile(".obsidian")?.findFile(name)
+        file?.let { f -> context.contentResolver.openInputStream(f.uri)?.bufferedReader()?.use { it.readText() } }
+    }.getOrNull()
 
     private fun readNote(context: Context, uri: Uri, path: String, mtime: Long): NoteRef {
         val text = runCatching {

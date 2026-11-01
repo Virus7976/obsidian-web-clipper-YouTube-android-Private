@@ -96,6 +96,12 @@ object NoteBuilder {
             "image" to m.thumb,
             "thumbnail" to m.thumb,
             "duration" to YouTube.formatTime(m.durationSec.toDouble()),
+            "minutes" to ((m.durationSec + 30) / 60).toString(),
+            "seconds" to m.durationSec.toString(),
+            "highlightCount" to video.highlights.size.toString(),
+            "chapters" to video.chapters.joinToString(",") { it.title },
+            "tags" to video.tags.joinToString(","),
+            "category" to video.category,
             "embed" to "![](${m.url})",
             "domain" to "youtube.com",
             "site" to "YouTube",
@@ -142,7 +148,7 @@ object NoteBuilder {
         val vars = variables(video, lines, settings)
         val props = withAutos(template.properties, settings.autoTags, settings.autoProps).map { p ->
             val raw = valueOverrides[p.id] ?: Template.render(p.value, vars)
-            val type = p.type.ifBlank { settings.propertyTypes[p.name] ?: "text" }
+            val type = p.type.ifBlank { settings.propertyTypes[p.name] ?: inferType(raw) }
             BuiltProperty(p, type, raw)
         }
         val content = Template.render(template.noteContentFormat, vars)
@@ -159,6 +165,18 @@ object NoteBuilder {
             append(content)
         }
         return BuiltNote(vault, folder, name, template.behavior, props, content, md)
+    }
+
+    /** Obsidian's Automatic: the value decides the type. */
+    fun inferType(value: String): String {
+        val t = value.trim()
+        return when {
+            t.equals("true", true) || t.equals("false", true) -> "checkbox"
+            Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(t) -> "date"
+            Regex("^\\d{4}-\\d{2}-\\d{2}T.*").matches(t) && Template.parseDate(t) != null -> "datetime"
+            Regex("^-?\\d+(\\.\\d+)?$").matches(t) -> "number"
+            else -> "text"
+        }
     }
 
     // ---------- YAML properties ----------

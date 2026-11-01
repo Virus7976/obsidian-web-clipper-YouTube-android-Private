@@ -14,8 +14,8 @@ android {
         applicationId = "app.marginalia"
         minSdk = 26
         targetSdk = 36
-        versionCode = 49
-        versionName = "2.14.0"
+        versionCode = 50
+        versionName = "2.15.0"
     }
 
     // The release key never lives in the repo. GitHub passes it in through secrets (see

@@ -121,6 +121,8 @@ fun SaveSheet(
         var pickTags by remember { mutableStateOf(false) }
         var pickNote by remember { mutableStateOf<String?>(null) }
         var asking by remember { mutableStateOf<String?>(null) }
+        var askFor by remember { mutableStateOf<String?>(null) }
+        var askDone by remember { mutableStateOf<String?>(null) }
 
         // Read the vault in the background so the existing-note check and the pickers are fresh.
         val key = settings.linkedVault(vault)
@@ -172,8 +174,9 @@ fun SaveSheet(
         )
         // "Yours to fill" is decided by the template, not by what is typed now. Otherwise the box
         // jumps into Details after the first letter and the text is lost.
-        val mineIds = base.properties.filter { !it.isTags() && it.value.isBlank() }.map { it.property.id }.toSet()
-        val mine = note.properties.filter { it.property.id in mineIds }
+        val askIds = base.properties.filter { it.property.ask }.map { it.property.id }.toSet()
+        val mineIds = base.properties.filter { !it.isTags() && it.value.isBlank() }.map { it.property.id }.toSet() + askIds
+        val mine = note.properties.filter { it.property.id in mineIds && it.property.id !in askIds }
         val details = note.properties.filter { !it.isTags() && it.property.id !in mineIds }
         val folderUri = key?.let { settings.vaultFolders[it] } ?: settings.vaultFolderUri
 
@@ -229,8 +232,12 @@ fun SaveSheet(
         }
 
         // Where a save would touch the vault, ask first when the video is already there.
-        fun go(kind: String) {
+        fun finish(kind: String) {
             if ((kind == "addToObsidian" || kind == "saveFile") && existing != null) asking = kind else send(kind)
+        }
+
+        fun go(kind: String) {
+            if (askIds.isNotEmpty()) askFor = kind else finish(kind)
         }
 
         Column(
@@ -290,7 +297,7 @@ fun SaveSheet(
                 )
             }
 
-            if (tagsProp != null) {
+            if (tagsProp != null && tagsProp.property.id !in askIds) {
                 Text("Tags", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     tags.toList().forEach { t ->
@@ -427,6 +434,25 @@ fun SaveSheet(
             }
         }
 
+        askFor?.let { kind ->
+            val vars = remember(templateId) { NoteBuilder.variables(video, lines, settings) }
+            AskSheet(
+                fields = note.properties.filter { it.property.id in askIds },
+                action = labelFor(kind), vars = vars, vault = key,
+                onValue = { p, v ->
+                    if (p.isTags()) {
+                        tags.clear()
+                        tags.addAll(NoteBuilder.splitList(v).map { it.removePrefix("#").trim('"') })
+                    } else overrides[p.property.id] = v
+                },
+                onSave = { askDone = kind; askFor = null },
+                onDismiss = { askFor = null },
+            )
+        }
+        // After the next composition, so the note holds what was typed last.
+        askDone?.let { kind ->
+            androidx.compose.runtime.LaunchedEffect(kind) { askDone = null; finish(kind) }
+        }
         if (pickFolder) {
             OmniSheet(
                 vault = key ?: vault, title = "Choose a folder",

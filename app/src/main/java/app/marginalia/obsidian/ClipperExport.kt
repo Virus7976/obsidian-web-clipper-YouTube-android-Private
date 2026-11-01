@@ -60,6 +60,7 @@ object ClipperExport {
                                 put("id", p.id)
                                 put("name", p.name)
                                 put("value", p.value)
+                                if (p.ask) put("ask", true)
                             })
                         }
                     })

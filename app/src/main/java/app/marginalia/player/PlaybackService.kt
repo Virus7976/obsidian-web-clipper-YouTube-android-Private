@@ -79,7 +79,7 @@ class PlaybackService : MediaSessionService() {
             if (showLock) it.add(
                 CommandButton.Builder(CommandButton.ICON_UNDEFINED)
                     .setCustomIconResId(if (locked) R.drawable.ic_lock else R.drawable.ic_lock_open)
-                    .setDisplayName(if (locked) "Locked. Open Marginalia to unlock" else "Lock the controls")
+                    .setDisplayName(if (locked) "Locked. Open ObsiTube to unlock" else "Lock the controls")
                     .setSessionCommand(lock)
                     .setSlots(CommandButton.SLOT_OVERFLOW)
                     .build(),

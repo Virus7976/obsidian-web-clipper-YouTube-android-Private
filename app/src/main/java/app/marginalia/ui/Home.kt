@@ -213,7 +213,7 @@ fun HomeScreen(
                                 else scope.launch { listState.animateScrollToItem(0) }
                             }
                         }
-                    } else Text("Marginalia", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                    } else Text("ObsiTube", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
                     androidx.compose.material3.FilledTonalIconButton(onClick = { addInitial = null; addOpen = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.Add, "Add a video") }
                     IconButton(onClick = { searchOpen = true }) { Icon(Icons.Rounded.Search, "Search everything") }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }

@@ -131,6 +131,8 @@ data class TemplateProperty(
     val name: String,
     val value: String = "",
     val type: String = "",
+    /** A box for it opens before the note saves. The value is what the box starts with. */
+    val ask: Boolean = false,
 )
 
 @Serializable
@@ -143,6 +145,8 @@ data class ClipTemplate(
     val noteContentFormat: String = "{{content}}",
     val vault: String = "",
     val properties: List<TemplateProperty> = emptyList(),
+    /** The vault note this came from. Picking that note again updates this template. */
+    val source: String = "",
 )
 
 /** A palette made in the palette maker. */

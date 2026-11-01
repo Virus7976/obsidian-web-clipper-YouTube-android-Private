@@ -200,7 +200,7 @@ class SelfUpdate(private val context: Context, private val settings: SettingsSto
 
     fun canInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
 
-    /** Opens the Android screen where the user allows installs from Marginalia. */
+    /** Opens the Android screen where the user allows installs from ObsiTube. */
     fun askPermission() {
         context.startActivity(
             Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -240,7 +240,7 @@ class SelfUpdate(private val context: Context, private val settings: SettingsSto
                 pi.openSession(id).use { s ->
                     val details = PackageInstaller.PreapprovalDetails.Builder()
                         .setPackageName(context.packageName)
-                        .setLabel("Marginalia")
+                        .setLabel("ObsiTube")
                         .setLocale(android.icu.util.ULocale.getDefault())
                         .build()
                     s.requestUserPreapproval(details, resultIntent(id).intentSender)
@@ -271,7 +271,7 @@ class SelfUpdate(private val context: Context, private val settings: SettingsSto
             val problem = when (method) {
                 "shizuku" -> when {
                     !ShizukuInstaller.running() -> "Shizuku is not running."
-                    !ShizukuInstaller.allowed() -> { ShizukuInstaller.askPermission(); "Allow Marginalia in Shizuku first." }
+                    !ShizukuInstaller.allowed() -> { ShizukuInstaller.askPermission(); "Allow ObsiTube in Shizuku first." }
                     else -> ShizukuInstaller.install(ready.file)
                 }
                 else -> AdbInstaller.get(context).install(ready.file)

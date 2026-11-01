@@ -76,6 +76,7 @@ object ClipperImport {
                     name = po.s("name") ?: return@mapNotNull null,
                     value = po.s("value") ?: "",
                     type = po.s("type") ?: "",
+                    ask = po.b("ask") ?: false,
                 )
             }.orEmpty()
             found[id] = ClipTemplate(

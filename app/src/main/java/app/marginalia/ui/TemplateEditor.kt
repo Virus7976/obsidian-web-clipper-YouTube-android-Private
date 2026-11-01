@@ -38,6 +38,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -45,9 +49,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.data.ClipTemplate
 import app.marginalia.data.TemplateProperty
+import app.marginalia.data.YouTube
+import app.marginalia.obsidian.NoteBuilder
+import app.marginalia.obsidian.VideoData
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
-private val propertyTypes = listOf("text", "multitext", "date", "datetime", "number", "checkbox")
 private val behaviors = listOf(
     "create" to "Create",
     "overwrite" to "Overwrite",
@@ -69,6 +77,18 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
     }
     fun editProp(pid: String, block: (TemplateProperty) -> TemplateProperty) =
         edit { it.copy(properties = it.properties.map { p -> if (p.id == pid) block(p) else p }) }
+
+    // Your last video, so each kind of data shows what it really holds.
+    val videos by app.library.videos.collectAsState()
+    val sample = remember(videos) { videos.maxByOrNull { maxOf(it.playedAt, it.updatedAt) } }
+    val vars by produceState(emptyMap<String, String>(), sample?.meta?.id) {
+        val v = sample ?: return@produceState
+        value = withContext(Dispatchers.IO) {
+            val lines = app.library.loadTranscript(v.meta.id)?.let { YouTube.toLines(it.cues, s.lineLength, v.chapters) }.orEmpty()
+            NoteBuilder.variables(v, lines, s)
+        }
+    }
+    var editing by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -96,6 +116,41 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
         item {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(t.name, { v -> edit { it.copy(name = v) } }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
+                if (t.source.isNotBlank()) {
+                    Text("From your vault: ${t.source}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        item {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                Text("Properties", style = MaterialTheme.typography.titleLarge)
+                Text("Tap one to choose what goes in it.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                sample?.let {
+                    Text(
+                        "Examples from ${it.meta.title}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        itemsIndexed(t.properties, key = { _, p -> p.id }) { _, p ->
+            Column(Modifier.padding(horizontal = 16.dp)) { PropertyRow(p, vars) { editing = p.id } }
+        }
+        item {
+            Row(Modifier.padding(horizontal = 16.dp)) {
+                OutlinedButton(onClick = {
+                    val pid = UUID.randomUUID().toString()
+                    edit { it.copy(properties = it.properties + TemplateProperty(pid, "new property", "", "")) }
+                    editing = pid
+                }) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add property")
+                }
+            }
+        }
+        item {
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("When saving", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     behaviors.forEach { (k, label) ->
@@ -123,43 +178,6 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
             }
         }
         item {
-            Text("Properties", Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.titleLarge)
-        }
-        itemsIndexed(t.properties, key = { _, p -> p.id }) { _, p ->
-            Surface(
-                Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(p.name, { v -> editProp(p.id) { it.copy(name = v) } }, Modifier.weight(1f), label = { Text("Name") }, singleLine = true)
-                        IconButton(onClick = { edit { it.copy(properties = it.properties.filterNot { x -> x.id == p.id }) } }) {
-                            Icon(Icons.Rounded.Close, "Remove property")
-                        }
-                    }
-                    OutlinedTextField(p.value, { v -> editProp(p.id) { it.copy(value = v) } }, Modifier.fillMaxWidth(), label = { Text("Value") })
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        val current = p.type.ifBlank { s.propertyTypes[p.name] ?: "text" }
-                        propertyTypes.forEach { ty ->
-                            FilterChip(selected = current == ty, onClick = { editProp(p.id) { it.copy(type = ty) } }, label = { Text(ty) })
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Row(Modifier.padding(horizontal = 16.dp)) {
-                OutlinedButton(onClick = {
-                    edit { it.copy(properties = it.properties + TemplateProperty(UUID.randomUUID().toString(), "new property", "", "text")) }
-                }) {
-                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Add property")
-                }
-            }
-        }
-        item {
             Surface(
                 Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
@@ -168,8 +186,7 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Variables", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "{{title}} {{url}} {{author}} {{channel}} {{published}} {{date}} {{description}} {{fullDescription}} " +
-                            "{{content}} {{highlights}} {{transcript}} {{image}} {{duration}} {{videoId}} {{embed}} {{site}}",
+                        (VideoData.fields.map { it.key } + "content").joinToString(" ") { "{{$it}}" },
                         fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp,
                     )
                     Text("Filters", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 6.dp))
@@ -181,5 +198,16 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
                 }
             }
         }
+    }
+    t.properties.firstOrNull { it.id == editing }?.let { p ->
+        PropertyRuleSheet(
+            p = p, vars = vars, vault = s.linkedVault(s.vault) ?: s.vaultFolders.keys.firstOrNull(),
+            onChange = { block -> editProp(p.id, block) },
+            onRemove = {
+                editing = null
+                edit { it.copy(properties = it.properties.filterNot { x -> x.id == p.id }) }
+            },
+            onDismiss = { editing = null },
+        )
     }
 }
