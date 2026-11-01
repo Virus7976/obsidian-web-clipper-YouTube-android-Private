@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <b>Turn any YouTube video into notes you keep.</b><br>
-  Listen, read the transcript as it plays, highlight the exact words, and clip it all to Obsidian.
+  <b>Stop forgetting what you watch.</b><br>
+  You spend hours on YouTube. A week later, it is gone. ObsiTube turns a video into words you can read, keep and see again.
 </p>
 
 <p align="center">
@@ -21,20 +21,26 @@
 
 ---
 
-## Screenshots
+## How it works
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/store/01-read.png" alt="Reader with the transcript and highlights"></td>
-    <td width="33%"><img src="docs/store/02-library.png" alt="Library with Pick up where you left off"></td>
-    <td width="33%"><img src="docs/store/03-template.png" alt="A vault template set up for clipping"></td>
+    <td width="33%"><img src="docs/store/01-forget.png" alt="You watch it, then it is gone"></td>
+    <td width="33%"><img src="docs/store/02-read.png" alt="Read the transcript as the video plays"></td>
+    <td width="33%"><img src="docs/store/03-keep.png" alt="Hold a word to highlight it"></td>
   </tr>
   <tr>
-    <td width="33%"><img src="docs/store/04-data.png" alt="The list of video data for a property"></td>
-    <td width="33%"><img src="docs/store/05-ask.png" alt="The fill-in step before a note saves"></td>
-    <td width="33%"><img src="docs/store/06-look.png" alt="App icon and theme settings"></td>
+    <td width="33%"><img src="docs/store/04-note.png" alt="A saved note made from a video"></td>
+    <td width="33%"><img src="docs/store/05-review.png" alt="Old highlights come back in Review"></td>
+    <td width="33%"><img src="docs/store/06-find.png" alt="Search finds your highlights and notes"></td>
   </tr>
 </table>
+
+1. **Read.** The transcript follows the video, word by word.
+2. **Keep.** Hold a word to highlight it, and add your own thought.
+3. **Save.** One tap makes a clean note in your Obsidian vault.
+4. **Remember.** Old highlights come back in short Review rounds.
+5. **Find.** Search your highlights, notes, titles and tags.
 
 ## Features
 
@@ -57,7 +63,7 @@
 | **Mark as done** | Tap the tick, swipe a row, or watch to the end. Undo is one tap away. |
 | **Queue and playlists** | Line up what is next, or import a YouTube playlist. |
 | **Channels and feed** | Follow channels and see what is new. |
-| **Search** | Look through titles, transcripts and highlights. |
+| **Search** | Look through titles, channels, tags, highlights and your notes. |
 
 ### Clip to Obsidian
 
@@ -66,7 +72,9 @@
 | **Your vault templates** | Pick a note from your vault. ObsiTube reads its properties and sets them up. |
 | **Every property type** | Automatic, Checkbox, Date, Date & time, List, Number and Text. |
 | **Video data** | See what the app knows about a video, with real examples, and choose where it goes. |
-| **Ask me every time** | Mark a property and a box opens before the note saves. |
+| **Ask me every time** | Mark a property and its box shows on the save screen. If you leave it empty, it asks before the note saves. |
+| **Values you already use** | Each box offers what that property already has in your vault. |
+| **Two-way sync** | Change a vault template in the app or in Obsidian, and the other side follows. |
 | **Your vault, searched** | Pick folders, tags and notes with fuzzy search. |
 | **Safe updates** | If the video is already in your vault, updating only adds. Your writing stays. |
 | **Web Clipper** | Import and export Obsidian Web Clipper settings. |
