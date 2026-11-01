@@ -96,7 +96,7 @@
 
 | Choice | What it does |
 |---|---|
-| **Ask me** | A box opens before the note saves. |
+| **Ask me** | Its box shows on the save screen. If you leave it empty, it asks before the note saves. |
 | **Video data** | Fills in by itself from the list of video data. |
 | **Always the same** | Puts the same text in every note. It can mix in tags like `{{title}}`. |
 | **Leave empty** | Keeps the property with no value. |
