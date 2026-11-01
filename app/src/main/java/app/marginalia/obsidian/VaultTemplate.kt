@@ -68,6 +68,14 @@ object VaultTemplate {
         return out
     }
 
+    /** A note's short property values, by lower-case name. Long text is not worth offering again. */
+    fun values(frontmatter: String): Map<String, List<String>> = fields(frontmatter.replace("\r\n", "\n"))
+        .mapNotNull { f ->
+            val list = (if (f.list) NoteBuilder.splitList(f.value) else listOf(f.value.trim()))
+                .filter { it.isNotBlank() && it.length <= 60 && !it.contains("{{") }.take(20)
+            if (list.isEmpty()) null else f.name.lowercase() to list
+        }.toMap()
+
     /** Obsidian's own {{date}}, {{time}} and {{date:FORMAT}} in the form the clip template language reads. */
     fun clean(s: String): String = s
         .replace(datedTag) { "{{date|date:\"" + it.groupValues[2] + "\"}}" }

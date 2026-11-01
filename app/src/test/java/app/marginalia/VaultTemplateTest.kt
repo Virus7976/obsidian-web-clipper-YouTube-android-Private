@@ -147,6 +147,19 @@ class VaultTemplateTest {
     }
 
     @Test
+    fun aBoxOffersWhatTheVaultAlreadyUses() {
+        fun note(path: String, fm: String) = app.marginalia.data.NoteRef(path, "u", 0, props = VaultTemplate.values(fm))
+        val index = app.marginalia.data.VaultIndex("v", notes = listOf(
+            note("a.md", "categories:\n  - \"[[Clippings]]\"\n  - \"[[Books]]\"\nauthor: Ann\nsummary: " + "x".repeat(80) + "\nmade: {{date}}\n"),
+            note("b.md", "categories: [\"[[Clippings]]\"]\nCategories2:\nAuthor: []\n"),
+        ))
+        assertEquals(mapOf("[[Clippings]]" to 2, "[[Books]]" to 1), index.values("Categories"))
+        assertEquals(mapOf("Ann" to 1), index.values("author"))
+        assertTrue(index.values("summary").isEmpty())
+        assertTrue(index.values("made").isEmpty())
+    }
+
+    @Test
     fun obsidianDateTagsWork() {
         val t = VaultTemplate.read("---\nday: {{date:YYYY}}\nat: {{time}}\n---\nOn {{date}}", "T.md", emptyMap())
         val note = NoteBuilder.build(t, video, emptyList(), AppSettings())

@@ -27,9 +27,17 @@ data class NoteRef(
     val headings: List<String> = emptyList(),
     /** The first part of the note body, plain, for searching inside notes. */
     val text: String = "",
+    /** Short property values by lower-case name, so a box can offer what you already use. */
+    val props: Map<String, List<String>> = emptyMap(),
+    /** A note read by an older version is read again. */
+    val format: Int = 0,
 ) {
     val name: String get() = path.substringAfterLast('/').removeSuffix(".md")
     val folder: String get() = path.substringBeforeLast('/', "")
+
+    companion object {
+        const val FORMAT = 1
+    }
 }
 
 @Serializable
@@ -41,6 +49,23 @@ data class VaultIndex(
 ) {
     @kotlinx.serialization.Transient
     private var tagCache: Map<String, Int>? = null
+
+    @kotlinx.serialization.Transient
+    private var valueCache: Map<String, Map<String, Int>>? = null
+
+    /** Every value a property has in the vault, with how many notes use it. */
+    fun values(property: String): Map<String, Int> {
+        val all = valueCache ?: run {
+            val m = HashMap<String, LinkedHashMap<String, Int>>()
+            for (n in notes) for ((k, list) in n.props) for (v in list) {
+                val counts = m.getOrPut(k) { LinkedHashMap() }
+                counts[v] = (counts[v] ?: 0) + 1
+            }
+            valueCache = m
+            m
+        }
+        return all[property.lowercase()].orEmpty()
+    }
 
     /** Every tag in the vault with the number of notes that use it. */
     val tags: Map<String, Int>
@@ -193,7 +218,7 @@ object VaultScanner {
                     gate.acquire()
                     try {
                         val old = oldByPath[e.path]
-                        val ref = if (old != null && old.mtime == e.mtime && old.uri == e.uri.toString()) old
+                        val ref = if (old != null && old.mtime == e.mtime && old.uri == e.uri.toString() && old.format == NoteRef.FORMAT) old
                         else readNote(context, e.uri, e.path, e.mtime)
                         val n = done.incrementAndGet()
                         if (n % 20 == 0) onProgress(n)
@@ -234,7 +259,10 @@ object VaultScanner {
             }
         }.getOrNull().orEmpty()
         val p = ObsidianText.parse(text)
-        return NoteRef(path, uri.toString(), mtime, p.tags, p.source, p.headings, ObsidianText.plain(p.body, TEXT_CHARS))
+        return NoteRef(
+            path, uri.toString(), mtime, p.tags, p.source, p.headings, ObsidianText.plain(p.body, TEXT_CHARS),
+            app.marginalia.obsidian.VaultTemplate.values(p.frontmatter), NoteRef.FORMAT,
+        )
     }
 }
 

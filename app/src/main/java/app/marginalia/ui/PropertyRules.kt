@@ -1,6 +1,7 @@
 package app.marginalia.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -28,7 +29,9 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Numbers
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
@@ -48,8 +51,10 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +67,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.marginalia.data.Omni
+import app.marginalia.data.OmniItem
 import app.marginalia.data.OmniKind
 import app.marginalia.data.TemplateProperty
 import app.marginalia.obsidian.BuiltProperty
@@ -70,6 +77,9 @@ import app.marginalia.obsidian.NoteBuilder
 import app.marginalia.obsidian.PropertyRule
 import app.marginalia.obsidian.Template
 import app.marginalia.obsidian.VideoData
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -239,6 +249,48 @@ fun PropertyRuleSheet(
     }
 }
 
+/** What you already use for this property in your vault, most used first, narrowed by what is typed. */
+@Composable
+private fun usedValues(vault: String?, property: String, typed: String, shown: Boolean, hide: Collection<String>): List<String> {
+    val app = LocalApp.current
+    val indexes by app.vaults.indexes.collectAsState()
+    val index = vault?.let { indexes[it] }
+    val found by produceState(emptyList<String>(), index, property, typed, shown, hide.toSet()) {
+        this.value = if (index == null || !shown) emptyList() else withContext(Dispatchers.Default) {
+            index.values(property).entries.filter { it.key !in hide }
+                .mapNotNull { e -> Omni.fuzzy(e.key, typed.trim())?.let { f -> e to f.score } }
+                .sortedWith(compareByDescending<Pair<Map.Entry<String, Int>, Double>> { it.second }.thenByDescending { it.first.value })
+                .take(12).map { it.first.key }
+        }
+    }
+    return found
+}
+
+@Composable
+private fun SuggestionRow(items: List<String>, onPick: (String) -> Unit) {
+    if (items.isEmpty()) return
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { v ->
+            AssistChip(onClick = { onPick(v) }, label = { Text(v, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+        }
+    }
+}
+
+/** A text box that offers the values this property already has in the vault. */
+@Composable
+private fun TextValueField(label: String, type: String, value: String, vault: String?, dataIcon: (@Composable () -> Unit)?, onChange: (String) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val used = usedValues(vault, label, value, focused && type != "number", listOf(value))
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value, onChange, Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+            label = { Text(label) }, maxLines = 6, shape = MaterialTheme.shapes.large, trailingIcon = dataIcon,
+            keyboardOptions = if (type == "number") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
+        )
+        SuggestionRow(used, onChange)
+    }
+}
+
 /** The right box for a property type. [insert] says what a piece of video data puts in the box. */
 @Composable
 fun TypedField(
@@ -252,20 +304,19 @@ fun TypedField(
     dataButton: Boolean = true,
 ) {
     var pickData by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val dataIcon: (@Composable () -> Unit)? = if (dataButton && VideoData.forType(type).isNotEmpty()) {
+        { IconButton(onClick = { pickData = true }) { Icon(Icons.Rounded.SmartDisplay, "Use video data") } }
+    } else null
+    Column {
         when (type) {
             "checkbox" -> Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                 Switch(checked = value.equals("true", true) || value == "1" || value.equals("yes", true), onCheckedChange = { onChange(it.toString()) })
             }
-            "date", "datetime" -> DateField(label, value, withTime = type == "datetime", onChange)
-            "multitext" -> ListField(label, value, vault, onChange)
-            else -> OutlinedTextField(
-                value, onChange, Modifier.fillMaxWidth(), label = { Text(label) }, maxLines = 6, shape = MaterialTheme.shapes.large,
-                keyboardOptions = if (type == "number") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
-            )
+            "date", "datetime" -> DateField(label, value, withTime = type == "datetime", dataIcon, onChange)
+            "multitext" -> ListField(label, value, vault, dataIcon, onChange)
+            else -> TextValueField(label, type, value, vault, dataIcon, onChange)
         }
-        if (dataButton && VideoData.forType(type).isNotEmpty()) TextButton(onClick = { pickData = true }) { Text("Use video data") }
     }
     if (pickData) {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -291,7 +342,7 @@ fun TypedField(
 }
 
 @Composable
-private fun DateField(label: String, value: String, withTime: Boolean, onChange: (String) -> Unit) {
+private fun DateField(label: String, value: String, withTime: Boolean, dataIcon: (@Composable () -> Unit)?, onChange: (String) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     var pickDay by remember { mutableStateOf(false) }
@@ -307,6 +358,7 @@ private fun DateField(label: String, value: String, withTime: Boolean, onChange:
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
+            dataIcon?.invoke()
             if (value.isNotBlank()) IconButton(onClick = { onChange("") }) { Icon(Icons.Rounded.Close, "Clear $label") }
         }
     }
@@ -346,26 +398,52 @@ private fun DateField(label: String, value: String, withTime: Boolean, onChange:
 }
 
 @Composable
-private fun ListField(label: String, value: String, vault: String?, onChange: (String) -> Unit) {
+private fun ListField(label: String, value: String, vault: String?, dataIcon: (@Composable () -> Unit)?, onChange: (String) -> Unit) {
+    val app = LocalApp.current
+    val settings by app.settings.state.collectAsState()
+    val indexes by app.vaults.indexes.collectAsState()
+    val index = vault?.let { indexes[it] }
+    val isTags = label.equals("tags", true)
+    val kinds = if (isTags) setOf(OmniKind.Tag) else setOf(OmniKind.Note, OmniKind.Tag)
     val items = NoteBuilder.splitList(value)
     var draft by remember { mutableStateOf("") }
     var pick by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    // Your own tags as you type. A tags box shows the ones you use most before you type at all.
+    val matches by produceState(emptyList<OmniItem>(), index, draft, focused, value) {
+        if (index == null || !focused || (draft.isBlank() && !isTags)) { this.value = emptyList(); return@produceState }
+        delay(35)
+        this.value = withContext(Dispatchers.Default) {
+            Omni.search(index, draft.removePrefix("#"), kinds, settings.recentTags, hide = items.toSet(), limit = 12)
+        }
+    }
+    val used = usedValues(vault, label, draft, focused, items)
     fun add(item: String) {
-        val t = item.trim()
+        val t = item.trim().removePrefix("#")
         if (t.isNotEmpty() && t !in items) onChange((items + t).joinToString(","))
         draft = ""
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         OutlinedTextField(
             draft,
             { v -> if (v.endsWith(",")) add(v.dropLast(1)) else draft = v },
             // Typed words count even when the next tap is Save.
-            Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused && draft.isNotBlank()) add(draft) },
+            Modifier.fillMaxWidth().onFocusChanged {
+                focused = it.isFocused
+                if (!it.isFocused && draft.isNotBlank()) add(draft)
+            },
             label = { Text(label) }, singleLine = true, shape = MaterialTheme.shapes.large,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { add(draft) }),
-            trailingIcon = { if (vault != null) IconButton(onClick = { pick = true }) { Icon(Icons.Rounded.Search, "Search your vault") } },
+            trailingIcon = {
+                Row {
+                    dataIcon?.invoke()
+                    if (vault != null) IconButton(onClick = { pick = true }) { Icon(Icons.Rounded.Search, "Search your vault") }
+                }
+            },
         )
+        val fromVault = matches.map { if (it.kind == OmniKind.Note) "[[${it.title}]]" else it.value }
+        SuggestionRow((used + fromVault).distinct().take(14), ::add)
         if (items.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items.forEach { item ->
                 InputChip(
@@ -379,7 +457,7 @@ private fun ListField(label: String, value: String, vault: String?, onChange: (S
     }
     if (pick && vault != null) {
         OmniSheet(
-            vault = vault, title = "Add to $label", kinds = setOf(OmniKind.Note, OmniKind.Tag),
+            vault = vault, title = "Add to $label", kinds = kinds,
             onPick = { o -> add(if (o.kind == OmniKind.Note) "[[${o.title}]]" else o.value); pick = false },
             onDismiss = { pick = false },
         )
