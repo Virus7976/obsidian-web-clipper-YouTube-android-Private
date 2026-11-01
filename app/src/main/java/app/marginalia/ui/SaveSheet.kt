@@ -123,6 +123,8 @@ fun SaveSheet(
         var asking by remember { mutableStateOf<String?>(null) }
         var askFor by remember { mutableStateOf<String?>(null) }
         var askDone by remember { mutableStateOf<String?>(null) }
+        var askEmpty by remember { mutableStateOf<Set<String>>(emptySet()) }
+        val vars = remember(templateId) { NoteBuilder.variables(video, lines, settings) }
 
         // Read the vault in the background so the existing-note check and the pickers are fresh.
         val key = settings.linkedVault(vault)
@@ -236,8 +238,17 @@ fun SaveSheet(
             if ((kind == "addToObsidian" || kind == "saveFile") && existing != null) asking = kind else send(kind)
         }
 
+        fun setValue(p: app.marginalia.obsidian.BuiltProperty, v: String) {
+            if (p.isTags()) {
+                tags.clear()
+                tags.addAll(NoteBuilder.splitList(v).map { it.removePrefix("#").trim('"') })
+            } else overrides[p.property.id] = v
+        }
+
+        // The boxes are on the sheet. The popup is only for one still empty at save time.
         fun go(kind: String) {
-            if (askIds.isNotEmpty()) askFor = kind else finish(kind)
+            askEmpty = note.properties.filter { it.property.id in askIds && it.value.isBlank() }.map { it.property.id }.toSet()
+            if (askEmpty.isNotEmpty()) askFor = kind else finish(kind)
         }
 
         Column(
@@ -285,6 +296,9 @@ fun SaveSheet(
             }
 
             // ---- the things you fill in
+            note.properties.filter { it.property.id in askIds }.forEach { p ->
+                TypedField(p.property.name, p.type, p.value, { setValue(p, it) }, vars, key, insert = { f -> vars[f.key].orEmpty() })
+            }
             mine.forEach { p ->
                 OutlinedTextField(
                     value = p.value,
@@ -376,16 +390,12 @@ fun SaveSheet(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            if (detailsOpen) "Hide details" else "Details, ${details.size} filled in for you",
+                            if (detailsOpen) "Hide details"
+                            else "Details: " + details.take(3).joinToString(", ") { it.property.name } + if (details.size > 3) " and ${details.size - 3} more" else "",
                             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
                         )
                         if (detailsOpen) details.forEach { p ->
-                            OutlinedTextField(
-                                value = p.value,
-                                onValueChange = { overrides[p.property.id] = it },
-                                label = { Text(p.property.name + if (p.type != "text") "  ·  ${p.type}" else "") },
-                                modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 4, shape = RoundedCornerShape(18.dp),
-                            )
+                            TypedField(p.property.name, p.type, p.value, { setValue(p, it) }, vars, key, insert = { f -> vars[f.key].orEmpty() }, dataButton = false)
                         }
                     }
                 }
@@ -435,16 +445,10 @@ fun SaveSheet(
         }
 
         askFor?.let { kind ->
-            val vars = remember(templateId) { NoteBuilder.variables(video, lines, settings) }
             AskSheet(
-                fields = note.properties.filter { it.property.id in askIds },
+                fields = note.properties.filter { it.property.id in askEmpty },
                 action = labelFor(kind), vars = vars, vault = key,
-                onValue = { p, v ->
-                    if (p.isTags()) {
-                        tags.clear()
-                        tags.addAll(NoteBuilder.splitList(v).map { it.removePrefix("#").trim('"') })
-                    } else overrides[p.property.id] = v
-                },
+                onValue = { p, v -> setValue(p, v) },
                 onSave = { askDone = kind; askFor = null },
                 onDismiss = { askFor = null },
             )

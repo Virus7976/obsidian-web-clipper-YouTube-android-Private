@@ -94,8 +94,9 @@ private fun ruleLine(p: TemplateProperty, vars: Map<String, String>): String = w
     PropertyRule.Ask -> "Ask me every time"
     PropertyRule.Empty -> "Leave empty"
     PropertyRule.Data -> {
-        val sample = oneLine(Template.render(p.value, vars))
-        VideoData.fieldOf(p.value)!!.label + if (sample.isEmpty()) "" else ": $sample"
+        val field = VideoData.fieldOf(p.value)!!
+        val sample = oneLine(Template.render(VideoData.valueFor(field, ""), vars))
+        field.label + if (sample.isEmpty()) "" else ": $sample"
     }
     PropertyRule.Fixed -> oneLine(Template.render(p.value, vars)).ifEmpty { p.value }
 }
@@ -248,6 +249,7 @@ fun TypedField(
     vars: Map<String, String>,
     vault: String?,
     insert: (DataField) -> String,
+    dataButton: Boolean = true,
 ) {
     var pickData by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -263,7 +265,7 @@ fun TypedField(
                 keyboardOptions = if (type == "number") KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
             )
         }
-        if (VideoData.forType(type).isNotEmpty()) TextButton(onClick = { pickData = true }) { Text("Use video data") }
+        if (dataButton && VideoData.forType(type).isNotEmpty()) TextButton(onClick = { pickData = true }) { Text("Use video data") }
     }
     if (pickData) {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
