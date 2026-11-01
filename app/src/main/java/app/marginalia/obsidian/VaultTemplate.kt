@@ -137,6 +137,63 @@ object VaultTemplate {
         return base.copy(source = path, noteContentFormat = content, properties = props)
     }
 
+    private fun block(name: String, value: String, type: String): String {
+        val key = if (Regex("^[A-Za-z0-9_ -]+$").matches(name)) name else "\"$name\""
+        fun q(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        return when {
+            type == "multitext" && value.isBlank() -> "$key: []"
+            type == "multitext" -> "$key:\n" + NoteBuilder.splitList(value).joinToString("\n") { "  - " + q(it) }
+            value.isBlank() -> "$key:"
+            value.startsWith("{{") || type in setOf("date", "datetime", "number", "checkbox") -> "$key: $value"
+            else -> "$key: " + q(value)
+        }
+    }
+
+    /**
+     * The vault note with this template's changes in it, or null when it already matches.
+     * Video data and Ask me stay in the app, so those properties sit empty in the note, and a
+     * line that still means the same is left exactly as it was written.
+     */
+    fun writeBack(text: String, t: ClipTemplate, read: ClipTemplate): String? {
+        val (fm, body) = ObsidianText.splitFrontmatter(text.replace("\r\n", "\n"))
+        val blocks = ArrayList<Pair<String, ArrayList<String>>>()
+        for (line in fm.lines()) {
+            val m = if (line.isBlank() || line.trimStart().startsWith("#")) null else head.find(line)
+            if (m != null) blocks += unquote(m.groupValues[1]) to arrayListOf(line)
+            else if (blocks.isNotEmpty() && line.isNotBlank()) blocks.last().second += line
+        }
+        val have = fields(fm).associateBy { it.name.lowercase() }
+        val lines = t.properties.joinToString("\n") { p ->
+            val old = have[p.name.lowercase()]
+            val raw = blocks.firstOrNull { it.first.equals(p.name, true) }?.second?.joinToString("\n")
+            val fixed = VideoData.ruleOf(p) == PropertyRule.Fixed && !p.ask
+            val same = old != null && clean(old.value) == p.value
+            when {
+                raw != null && (same || (old?.value.orEmpty().isBlank() && !fixed)) -> raw
+                else -> block(p.name, if (fixed) p.value else "", p.type)
+            }
+        }
+        val newBody = if (t.noteContentFormat == read.noteContentFormat) body else t.noteContentFormat
+        if (lines.trim() == fm.trim() && newBody == body) return null
+        val top = if (t.properties.isEmpty()) "" else "---\n$lines\n---\n"
+        return top + (if (newBody.isBlank()) "\n" else "\n$newBody")
+    }
+
+    /** The vault's types.json with the types set in the app, or null when nothing changed. */
+    fun writeTypes(json: String, t: ClipTemplate): String? {
+        val all = root(json) ?: return null
+        val old = (all["types"] as? JsonObject)?.toMutableMap() ?: return null
+        var changed = false
+        for (p in t.properties) {
+            if (p.type.isBlank() || p.name.equals("tags", true) || p.name.equals("aliases", true)) continue
+            val key = old.keys.firstOrNull { it.equals(p.name, true) } ?: p.name
+            if ((old[key] as? JsonPrimitive)?.contentOrNull != p.type) { old[key] = JsonPrimitive(p.type); changed = true }
+        }
+        if (!changed) return null
+        val pretty = Json { prettyPrint = true; prettyPrintIndent = "  " }
+        return pretty.encodeToString(JsonObject.serializer(), JsonObject(all + ("types" to JsonObject(old))))
+    }
+
     private fun root(json: String): JsonObject? = runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull()
 
     /** Property name to type, from the vault's .obsidian/types.json. */

@@ -93,6 +93,60 @@ class VaultTemplateTest {
     }
 
     @Test
+    fun aTemplateYouDidNotChangeLeavesTheNoteAlone() {
+        val t = VaultTemplate.read(clipping, "T.md", types)
+        assertNull(VaultTemplate.writeBack(clipping, t, t))
+    }
+
+    @Test
+    fun yourChangesReachTheNoteAndNothingElseMoves() {
+        val t = VaultTemplate.read(clipping, "T.md", types)
+        val changed = t.copy(properties = t.properties.filter { it.name != "published" }.map {
+            if (it.name == "categories") it.copy(value = "[[Videos]],\"say\"") else it
+        } + TemplateProperty("n", "rating", "5", "number") + TemplateProperty("m", "mood", "", "", ask = true))
+        val out = VaultTemplate.writeBack(clipping, changed, t)!!
+        assertTrue(out, out.contains("categories:\n  - \"[[Videos]]\"\n  - \"\\\"say\\\"\"\n"))
+        assertTrue(out, out.contains("created: {{date}}\n"))
+        assertTrue(out, out.contains("author: []\n"))
+        assertTrue(out, out.contains("url: \"\"\n"))
+        assertTrue(out, out.contains("topics: []\n"))
+        assertTrue(out, out.contains("rating: 5\n"))
+        assertTrue(out, out.contains("mood:\n---"))
+        assertFalse(out, out.contains("published"))
+        assertFalse(out, out.contains("{{author}}"))
+    }
+
+    @Test
+    fun whatIsWrittenBackReadsTheSameAgain() {
+        val t = VaultTemplate.read(clipping, "T.md", types)
+        val changed = t.copy(properties = t.properties + TemplateProperty("n", "status", "Inbox", "text"))
+        val out = VaultTemplate.writeBack(clipping, changed, t)!!
+        val again = VaultTemplate.read(out, "T.md", types, changed)
+        assertEquals(changed.properties.map { it.name }, again.properties.map { it.name })
+        assertNull(VaultTemplate.writeBack(out, changed, again))
+    }
+
+    @Test
+    fun theBodyChangesOnlyWhenYouChangeIt() {
+        val text = "---\na: 1\n---\n\n# Notes\n"
+        val t = VaultTemplate.read(text, "T.md", emptyMap())
+        assertNull(VaultTemplate.writeBack(text, t, t))
+        val out = VaultTemplate.writeBack(text, t.copy(noteContentFormat = "# Mine"), t)!!
+        assertTrue(out, out.endsWith("# Mine"))
+    }
+
+    @Test
+    fun typesChangeOnlyWhenYouChangeOne() {
+        val json = """{"types":{"tags":"tags","topics":"multitext"}}"""
+        val t = VaultTemplate.read(clipping, "T.md", mapOf("topics" to "multitext", "tags" to "tags"))
+        val same = t.copy(properties = t.properties.filter { it.name in setOf("tags", "topics") })
+        assertNull(VaultTemplate.writeTypes(json, same))
+        val out = VaultTemplate.writeTypes(json, t.copy(properties = listOf(TemplateProperty("x", "topics", "", "text"))))!!
+        assertEquals("text", VaultTemplate.types(out)["topics"])
+        assertEquals("tags", VaultTemplate.types(out)["tags"])
+    }
+
+    @Test
     fun obsidianDateTagsWork() {
         val t = VaultTemplate.read("---\nday: {{date:YYYY}}\nat: {{time}}\n---\nOn {{date}}", "T.md", emptyMap())
         val note = NoteBuilder.build(t, video, emptyList(), AppSettings())

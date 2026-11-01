@@ -51,8 +51,10 @@ import app.marginalia.data.ClipTemplate
 import app.marginalia.data.TemplateProperty
 import app.marginalia.data.YouTube
 import app.marginalia.obsidian.NoteBuilder
+import app.marginalia.obsidian.TemplateSync
 import app.marginalia.obsidian.VideoData
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -71,6 +73,11 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
     if (t == null) {
         LaunchedEffect(Unit) { onBack() }
         return
+    }
+    // A vault template opens with what is in Obsidian now, and leaves with what changed here.
+    LaunchedEffect(id) { TemplateSync.pull(app, id) }
+    androidx.compose.runtime.DisposableEffect(id) {
+        onDispose { kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch { TemplateSync.push(app, id) } }
     }
     fun edit(block: (ClipTemplate) -> ClipTemplate) {
         app.settings.update { st -> st.copy(templates = st.templates.map { if (it.id == id) block(it) else it }) }
@@ -117,7 +124,7 @@ fun TemplateEditorScreen(id: String, onBack: () -> Unit) {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(t.name, { v -> edit { it.copy(name = v) } }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
                 if (t.source.isNotBlank()) {
-                    Text("From your vault: ${t.source}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("From your vault: ${t.source}. Changes save to it when you leave.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

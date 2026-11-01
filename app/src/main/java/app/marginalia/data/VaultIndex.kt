@@ -214,6 +214,12 @@ object VaultScanner {
         file?.let { f -> context.contentResolver.openInputStream(f.uri)?.bufferedReader()?.use { it.readText() } }
     }.getOrNull()
 
+    fun writeConfig(context: Context, tree: Uri, name: String, text: String): Boolean = runCatching {
+        val file = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, tree)?.findFile(".obsidian")?.findFile(name)
+        context.contentResolver.openOutputStream(file!!.uri, "wt")!!.bufferedWriter().use { it.write(text) }
+        true
+    }.getOrDefault(false)
+
     private fun readNote(context: Context, uri: Uri, path: String, mtime: Long): NoteRef {
         val text = runCatching {
             context.contentResolver.openInputStream(uri)?.use { s ->
