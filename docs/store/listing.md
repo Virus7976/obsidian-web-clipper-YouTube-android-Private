@@ -51,7 +51,9 @@ MAKE IT YOURS
 
 No account. No ads. Your library stays on your phone, and your notes stay in your vault.
 
-ObsiTube is an independent app. It is not affiliated with Obsidian or YouTube.
+ObsiTube is free software under the GPL-3.0 licence. It is an independent app, not affiliated with Obsidian or YouTube.
+
+Source code: https://github.com/Virus7976/obsidian-web-clipper-YouTube-android-Private
 
 ## Category
 

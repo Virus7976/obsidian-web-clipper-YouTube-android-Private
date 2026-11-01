@@ -6,6 +6,7 @@
   <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Virus7976/obsidian-web-clipper-YouTube-android-Private?style=for-the-badge&label=release&color=8b5cf6&labelColor=17151f"></a>
   <img alt="Android 8 or newer" src="https://img.shields.io/badge/Android-8%2B-8b5cf6?style=for-the-badge&labelColor=17151f">
   <img alt="Kotlin and Jetpack Compose" src="https://img.shields.io/badge/Kotlin-Compose-8b5cf6?style=for-the-badge&labelColor=17151f">
+  <a href="LICENSE"><img alt="Licence GPL-3.0" src="https://img.shields.io/badge/licence-GPL--3.0-8b5cf6?style=for-the-badge&labelColor=17151f"></a>
   <img alt="Material 3 Expressive" src="https://img.shields.io/badge/Material%203-Expressive-8b5cf6?style=for-the-badge&labelColor=17151f">
 </p>
 
@@ -136,5 +137,9 @@ A daily workflow looks for a newer NewPipe Extractor. If both the tests and a re
 ## Stack
 
 Kotlin, Jetpack Compose, Material 3 Expressive, Media3 and NewPipe Extractor.
+
+## Licence
+
+ObsiTube is free software under the [GNU General Public License v3.0](LICENSE). It uses NewPipe Extractor, which is also GPL-3.
 
 ObsiTube is not affiliated with Obsidian or YouTube.
