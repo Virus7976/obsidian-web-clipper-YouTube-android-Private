@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.material.icons.rounded.Expand
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Search
@@ -504,6 +505,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                                 // open the note bar on the highlight that was just made
                                 editingId = next.firstOrNull { it.w0 >= 0 && a >= it.w0 && a <= it.w1 }?.id
                             }
+                            tv.onResize = { id, a, b ->
+                                app.library.edit(videoId) { it.copy(highlights = Highlights.resize(it.highlights, d.words, d::plainText, id, a, b)) }
+                                editingId = id
+                            }
                             tv.onErase = { a, b ->
                                 app.library.edit(videoId) { it.copy(highlights = Highlights.erase(it.highlights, d.words, d::plainText, a, b)) }
                             }
@@ -557,6 +562,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             }
                         },
                         onPlay = { seek(h.startSec) },
+                        onResize = if (h.w0 >= 0) ({
+                            editingId = null
+                            tview?.startResize(h.id, h.w0..h.w1)
+                        }) else null,
                         onClose = { editingId = null },
                     )
                 }
@@ -887,6 +896,7 @@ private fun HighlightNoteBar(
     onColor: (Int) -> Unit,
     onDelete: () -> Unit,
     onPlay: () -> Unit,
+    onResize: (() -> Unit)?,
     onClose: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -984,6 +994,15 @@ private fun HighlightNoteBar(
                 }
                 if (vault != null) IconButton(onClick = { linkTyped = false; linking = true }, Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Link, "Link a note", tint = scheme.onSurfaceVariant)
+                }
+                // Drag handles onto the ends of the highlight, to make it longer or shorter.
+                if (onResize != null) androidx.compose.material3.TextButton(
+                    onClick = { onNote(text); onResize() },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                ) {
+                    Icon(Icons.Rounded.Expand, null, Modifier.size(18.dp).graphicsLayer { rotationZ = 90f }, tint = scheme.onSurfaceVariant)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Length", color = scheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onPlay, Modifier.size(40.dp)) { Icon(Icons.Rounded.PlayArrow, "Play from here", tint = scheme.onSurfaceVariant) }

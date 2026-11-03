@@ -202,6 +202,38 @@ class TranscriptView(context: Context) : ScrollView(context) {
     /** Take highlights off words [first, last]. */
     var onErase: (first: Int, last: Int) -> Unit = { _, _ -> }
 
+    /** The ends of highlight [id] were moved to words [first, last]. */
+    var onResize: (id: String, first: Int, last: Int) -> Unit = { _, _, _ -> }
+
+    /** The highlight whose ends are being dragged, and its words before the drag. */
+    private var resizing: Pair<String, IntRange>? = null
+    private var resizeFresh = false
+
+    /**
+     * Put the selection handles on the ends of highlight [id], so the reader can drag them.
+     * A real long press is the only way to get the handles, so one is sent to the first word.
+     */
+    fun startResize(id: String, words: IntRange) {
+        val d = doc ?: return
+        if (words.first !in d.words.indices) return
+        resizing = id to words
+        resizeFresh = true
+        val wait = if (isVisible(words.first)) 0L else { scrollToWord(words.first); 450L }
+        postDelayed({
+            val layout = tv.layout ?: return@postDelayed
+            val w = d.words[words.first]
+            val line = layout.getLineForOffset(w.charStart)
+            val x = (layout.getPrimaryHorizontal(w.charStart) + layout.getPrimaryHorizontal(w.charEnd.coerceAtMost(layout.getLineEnd(line)))) / 2f + tv.paddingLeft
+            val y = (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f + tv.paddingTop
+            val t0 = SystemClock.uptimeMillis()
+            MotionEvent.obtain(t0, t0, MotionEvent.ACTION_DOWN, x, y, 0).also { it.source = android.view.InputDevice.SOURCE_TOUCHSCREEN; tv.dispatchTouchEvent(it); it.recycle() }
+            postDelayed({
+                val t1 = SystemClock.uptimeMillis()
+                MotionEvent.obtain(t0, t1, MotionEvent.ACTION_UP, x, y, 0).also { it.source = android.view.InputDevice.SOURCE_TOUCHSCREEN; tv.dispatchTouchEvent(it); it.recycle() }
+            }, android.view.ViewConfiguration.getLongPressTimeout() + 150L)
+        }, wait)
+    }
+
     init {
         isFillViewport = true
         overScrollMode = OVER_SCROLL_NEVER
@@ -507,6 +539,19 @@ class TranscriptView(context: Context) : ScrollView(context) {
 
     private fun selectionCallback() = object : ActionMode.Callback2() {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            resizing?.let { (_, r) ->
+                val d = doc
+                val t = tv.text as? Spannable
+                // Only the first time: later the handles hold whatever the reader dragged them to.
+                if (resizeFresh && d != null && t != null && r.first in d.words.indices) {
+                    Selection.setSelection(t, d.words[r.first].charStart, d.words[r.last.coerceAtMost(d.words.lastIndex)].charEnd)
+                }
+                resizeFresh = false
+                menu.clear()
+                menu.add(Menu.NONE, ID_RESIZE_SAVE, 0, "Save").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(Menu.NONE, ID_RESIZE_CANCEL, 1, "Cancel").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                return true
+            }
             if (style?.highlighterOn == false) return false
             expand(style?.holdSelects ?: "word")
             menu.clear()
@@ -523,7 +568,12 @@ class TranscriptView(context: Context) : ScrollView(context) {
             return true
         }
 
-        override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+            // While the ends of a highlight move, only Save and Cancel make sense.
+            if (resizing == null || menu.findItem(android.R.id.selectAll) == null) return false
+            menu.removeItem(android.R.id.selectAll)
+            return true
+        }
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
             val d = doc ?: return false
@@ -538,6 +588,11 @@ class TranscriptView(context: Context) : ScrollView(context) {
                     }
                 }
                 ID_ERASE -> range?.let { onErase(it.first, it.last) }
+                ID_RESIZE_SAVE -> {
+                    val id = resizing?.first
+                    if (id != null && range != null) onResize(id, range.first, range.last)
+                }
+                ID_RESIZE_CANCEL -> {}
                 else -> if (item.itemId >= ID_COLOR && item.itemId < ID_COLOR + HighlightColors.size && range != null) {
                     tv.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
                     onPaint(range.first, range.last, item.itemId - ID_COLOR)
@@ -548,6 +603,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
         }
 
         override fun onDestroyActionMode(mode: ActionMode) {
+            resizing = null
             val t = tv.text
             if (t is Spannable) Selection.removeSelection(t)
         }
@@ -599,6 +655,8 @@ class TranscriptView(context: Context) : ScrollView(context) {
         const val ID_COPY = 201
         const val ID_SENTENCE = 202
         const val ID_PARAGRAPH = 203
+        const val ID_RESIZE_SAVE = 204
+        const val ID_RESIZE_CANCEL = 205
         const val MATCH = 0x66FFD54F
         const val MATCH_NOW = 0xCCFF9800.toInt()
     }

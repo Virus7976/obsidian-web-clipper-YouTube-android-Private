@@ -77,6 +77,20 @@ object Highlights {
         return out.sortedBy { it.startSec }
     }
 
+    /**
+     * Move the ends of highlight [id] to words i0..i1. It keeps its id, colour, note and tags.
+     * Other highlights under the new words are cut, the same as when you paint over them.
+     */
+    fun resize(current: List<Highlight>, words: List<Word>, text: (Int, Int) -> String, id: String, i0: Int, i1: Int): List<Highlight> {
+        val h = current.firstOrNull { it.id == id } ?: return current
+        if (words.isEmpty()) return current
+        val lo = minOf(i0, i1).coerceIn(words.indices)
+        val hi = maxOf(i0, i1).coerceIn(words.indices)
+        val others = erase(current.filterNot { it.id == id }, words, text, lo, hi)
+        val moved = make(words, text, lo, hi, h.color, h.note).copy(id = h.id, createdAt = h.createdAt, tags = h.tags)
+        return (others + moved).sortedBy { it.startSec }
+    }
+
     /** Does any highlight touch words i0..i1? Decides whether a drag paints or erases. */
     fun touches(current: List<Highlight>, words: List<Word>, i0: Int, i1: Int): Boolean =
         colorByWord(words, current).let { c -> (i0..i1).any { c.getOrElse(it) { -1 } >= 0 } }
