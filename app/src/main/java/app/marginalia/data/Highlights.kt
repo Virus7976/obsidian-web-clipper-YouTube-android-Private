@@ -2,6 +2,9 @@ package app.marginalia.data
 
 import java.util.UUID
 
+/** The words one highlight covers on the page, and its colour index. */
+data class HighlightRun(val id: String, val words: IntRange, val color: Int)
+
 /** All the add, recolour and erase rules for highlights, kept apart from the screen so they are easy to test. */
 object Highlights {
     private const val EPS = 0.05
@@ -33,11 +36,11 @@ object Highlights {
         }
 
     /** Each highlight's words and colour, longest first, so one inside another is drawn on top of it. */
-    fun runs(words: List<Word>, highlights: List<Highlight>): List<Pair<IntRange, Int>> =
+    fun runs(words: List<Word>, highlights: List<Highlight>): List<HighlightRun> =
         highlights.mapNotNull { h ->
             val r = if (h.w0 >= 0) h.w0..minOf(h.w1, words.lastIndex) else wordsOf(h, words)
-            r?.takeIf { !it.isEmpty() }?.let { it to h.color }
-        }.sortedByDescending { it.first.last - it.first.first }
+            r?.takeIf { !it.isEmpty() }?.let { HighlightRun(h.id, it, h.color) }
+        }.sortedByDescending { it.words.last - it.words.first }
 
     /** The highlight to open when word [i] is tapped: the shortest one on it, so one inside another can be reached. */
     fun at(highlights: List<Highlight>, i: Int): Highlight? =
@@ -103,6 +106,28 @@ object Highlights {
         val hi = maxOf(i0, i1).coerceIn(words.indices)
         val moved = make(words, text, lo, hi, h.color, h.note).copy(id = h.id, createdAt = h.createdAt, tags = h.tags)
         return current.map { if (it.id == id) moved else it }.sortedWith(order)
+    }
+
+    /**
+     * Where a pull handle puts a highlight's words [r] when the finger is at character [off].
+     * The start handle takes the word under the finger, or the next one after a gap. The end handle takes
+     * the last word that starts before the finger. Neither can pass the other end, so one word always stays.
+     */
+    fun pull(words: List<Word>, r: IntRange, start: Boolean, off: Int): IntRange {
+        if (words.isEmpty()) return r
+        // The first word that ends after [off], like TranscriptDoc.wordAtChar.
+        var lo = 0
+        var hi = words.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (words[mid].charEnd > off) hi = mid else lo = mid + 1
+        }
+        return if (start) {
+            minOf(lo, words.lastIndex).coerceAtMost(r.last)..r.last
+        } else {
+            val w = if (lo < words.size && words[lo].charStart < off) lo else lo - 1
+            r.first..w.coerceAtLeast(r.first)
+        }
     }
 
     /** Does any highlight touch words i0..i1? Decides whether a drag paints or erases. */

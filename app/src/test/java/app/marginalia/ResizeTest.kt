@@ -46,7 +46,7 @@ class ResizeTest {
         assertEquals(5..5, Highlights.at(inner, 5)!!.let { it.w0..it.w1 })
         assertEquals("keep", Highlights.at(inner, 4)!!.id)
         // drawn outer first, so the inner one sits on top
-        assertEquals(listOf(4..6, 5..5), Highlights.runs(words, inner).map { it.first })
+        assertEquals(listOf(4..6, 5..5), Highlights.runs(words, inner).map { it.words })
     }
 
     @Test

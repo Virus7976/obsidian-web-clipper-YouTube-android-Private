@@ -30,6 +30,8 @@ import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
 import app.marginalia.data.HighlightColors
+import app.marginalia.data.HighlightRun
+import app.marginalia.data.Highlights
 import app.marginalia.data.TranscriptDoc
 
 data class ReaderStyle(
@@ -88,12 +90,55 @@ private class PageText(context: Context) : TextView(context) {
     var noted: List<Mark> = emptyList()
         set(v) { field = v; refresh() }
 
-    /** Called when the selection moves. Nullable, because TextView can move it before this class is set up. */
-    var onSelectionMoved: (() -> Unit)? = null
+    /** The two ends of the highlight being changed, as character offsets. -1 when no highlight is open. */
+    private var pinFrom = -1
+    private var pinTo = -1
+    private var pinColor = 0
 
-    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
-        super.onSelectionChanged(selStart, selEnd)
-        onSelectionMoved?.invoke()
+    fun setPins(from: Int, to: Int, color: Int) {
+        if (from == pinFrom && to == pinTo && color == pinColor) return
+        pinFrom = from
+        pinTo = to
+        pinColor = color
+        invalidate()
+    }
+
+    /**
+     * Where the pull handles sit, in this view's own coordinates: for each end the x of its line, the top and
+     * bottom of the text box on that line, and the centre of its knob. The start knob is above the text and
+     * the end knob below, so neither covers a word and they never sit on the same spot.
+     */
+    class Pin(val x: Float, val top: Float, val bottom: Float, val knobY: Float)
+
+    fun pins(): Pair<Pin, Pin>? {
+        val l = layout ?: return null
+        if (pinFrom < 0 || pinTo <= pinFrom) return null
+        val size = textSize
+        val left = totalPaddingLeft
+        val top = totalPaddingTop
+        val r = KNOB * dp
+        val l0 = l.getLineForOffset(pinFrom)
+        val b0 = l.getLineBaseline(l0).toFloat()
+        val x0 = l.getPrimaryHorizontal(pinFrom) - 2 * dp + left
+        val t0 = b0 - size * 0.84f + top
+        val start = Pin(x0, t0, b0 + size * 0.3f + top, t0 - r)
+        val l1 = l.getLineForOffset(pinTo - 1)
+        val b1 = l.getLineBaseline(l1).toFloat()
+        val x1 = (if (pinTo >= l.getLineVisibleEnd(l1)) l.getLineRight(l1) else l.getPrimaryHorizontal(pinTo)) + 2 * dp + left
+        val e1 = b1 + size * 0.3f + top
+        val end = Pin(x1, b1 - size * 0.84f + top, e1, e1 + r)
+        return start to end
+    }
+
+    private fun drawPin(canvas: Canvas, p: Pin, knobAbove: Boolean) {
+        val r = KNOB * dp
+        // A dark ring keeps a light colour readable on the page, and the stem joins the knob to the text.
+        ink.color = 0xCC000000.toInt()
+        canvas.drawRect(p.x - 2f * dp, p.top, p.x + 2f * dp, p.bottom, ink)
+        canvas.drawCircle(p.x, p.knobY, r + 1.5f * dp, ink)
+        ink.color = pinColor
+        canvas.drawRect(p.x - 1.25f * dp, if (knobAbove) p.knobY else p.top, p.x + 1.25f * dp, if (knobAbove) p.bottom else p.knobY, ink)
+        canvas.drawCircle(p.x, p.knobY, r, ink)
     }
 
     fun refresh() {
@@ -180,6 +225,16 @@ private class PageText(context: Context) : TextView(context) {
             canvas.restore()
         }
         super.onDraw(canvas)
+        // On top of the text, so the stem is never hidden by a letter.
+        pins()?.let { (a, b) ->
+            drawPin(canvas, a, knobAbove = true)
+            drawPin(canvas, b, knobAbove = false)
+        }
+    }
+
+    companion object {
+        /** Radius of a pull handle's knob, in dp. */
+        const val KNOB = 9f
     }
 }
 
@@ -210,65 +265,173 @@ class TranscriptView(context: Context) : ScrollView(context) {
     /** Take highlights off words [first, last]. */
     var onErase: (first: Int, last: Int) -> Unit = { _, _ -> }
 
-    /** The ends of highlight [id] were moved to words [first, last]. Called while the handles are dragged. */
+    /** The ends of highlight [id] were moved to words [first, last]. Called when a pull handle is let go. */
     var onResize: (id: String, first: Int, last: Int) -> Unit = { _, _, _ -> }
 
-    /** The highlight with handles on its ends, and the words it covers now. */
-    private var resizing: Pair<String, IntRange>? = null
+    // ---------- pull handles on an open highlight ----------
+    // These are drawn by this view, not the phone's text selection. A selection can collapse to one point
+    // when a tap lands, and saving that would shrink the highlight to nothing. A handle can only move its
+    // own end, word by word, and the two ends can never pass each other.
 
-    /** True until the handles are on the highlight. Before that a selection change is the long press, not a drag. */
-    private var resizeFresh = false
-    private var resizeMode: ActionMode? = null
+    /** The open highlight, and the words it covers. Null when none is open. */
+    private var pinned: String? = null
+    private var pinWords: IntRange? = null
 
-    /** True while this view sends its own long press. */
-    private var pressing = false
+    /** 0 when no handle is held, -1 for the start one, 1 for the end one. */
+    private var dragging = 0
+    private var dragFrom: IntRange? = null
+    private var grabDx = 0f
+    private var grabDy = 0f
+    private var fingerX = 0f
+    private var fingerY = 0f
+    private var magnifier: android.widget.Magnifier? = null
 
-    private val saveResize = Runnable {
-        val (id, was) = resizing ?: return@Runnable
-        val r = doc?.wordsInSelection(tv.selectionStart.coerceAtLeast(0), tv.selectionEnd.coerceAtLeast(0)) ?: return@Runnable
-        if (r != was) {
-            resizing = id to r
-            onResize(id, r.first, r.last)
+    /** Put pull handles on the ends of highlight [id]. */
+    fun startResize(id: String, words: IntRange) {
+        if (dragging != 0) endDrag()
+        pinned = id
+        pinWords = words
+        if (!isVisible(words.first)) scrollToWord(words.first)
+        drawRuns()
+    }
+
+    /** Take the handles off. A drag in progress is kept. */
+    fun stopResize() {
+        if (dragging != 0) endDrag()
+        if (pinned == null) return
+        pinned = null
+        pinWords = null
+        drawRuns()
+        tv.setPins(-1, -1, 0)
+    }
+
+    private fun showPins() {
+        val d = doc
+        val r = pinWords
+        val run = ownRuns?.firstOrNull { it.id == pinned }
+        val a = r?.let { d?.words?.getOrNull(it.first) }
+        val b = r?.let { d?.words?.getOrNull(it.last) }
+        if (run == null || a == null || b == null) { tv.setPins(-1, -1, 0); return }
+        tv.setPins(a.charStart, b.charEnd, HighlightColors[run.color.coerceIn(HighlightColors.indices)].ui.toInt())
+    }
+
+    /** Which handle is under the finger at ([x], [y]) on screen: -1 start, 1 end, 0 none. The nearer one wins. */
+    private fun pinAt(x: Float, y: Float): Int {
+        val (a, b) = tv.pins() ?: return 0
+        val px = x + scrollX - tv.left
+        val py = y + scrollY - tv.top
+        val reach = dp(30).toFloat()
+        fun dist(p: PageText.Pin): Float {
+            // The knob, and the stem down to the text, are both something to grab.
+            val dy = when {
+                py < minOf(p.knobY, p.top) -> minOf(p.knobY, p.top) - py
+                py > maxOf(p.knobY, p.bottom) -> py - maxOf(p.knobY, p.bottom)
+                else -> 0f
+            }
+            return kotlin.math.hypot(px - p.x, dy)
+        }
+        val da = dist(a)
+        val db = dist(b)
+        return when {
+            da > reach && db > reach -> 0
+            da <= db -> -1
+            else -> 1
         }
     }
 
-    /**
-     * Put the selection handles on the ends of highlight [id], so the reader can drag them. Each drag saves by itself.
-     * A real long press is the only way to get the handles, so one is sent to the first word.
-     */
-    fun startResize(id: String, words: IntRange) {
-        val d = doc ?: return
-        if (words.first !in d.words.indices) return
-        if (resizing?.first == id && resizeMode != null) return
-        resizeMode?.finish()
-        resizing = id to words
-        resizeFresh = true
-        val wait = if (isVisible(words.first)) 0L else { scrollToWord(words.first); 450L }
-        postDelayed({
-            if (resizing?.first != id) return@postDelayed
-            val layout = tv.layout ?: return@postDelayed
-            val w = d.words[words.first]
-            val line = layout.getLineForOffset(w.charStart)
-            val x = (layout.getPrimaryHorizontal(w.charStart) + layout.getPrimaryHorizontal(w.charEnd.coerceAtMost(layout.getLineEnd(line)))) / 2f + tv.paddingLeft
-            val y = (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f + tv.paddingTop
-            val t0 = SystemClock.uptimeMillis()
-            pressing = true
-            MotionEvent.obtain(t0, t0, MotionEvent.ACTION_DOWN, x, y, 0).also { it.source = android.view.InputDevice.SOURCE_TOUCHSCREEN; tv.dispatchTouchEvent(it); it.recycle() }
-            postDelayed({
-                val t1 = SystemClock.uptimeMillis()
-                MotionEvent.obtain(t0, t1, MotionEvent.ACTION_UP, x, y, 0).also { it.source = android.view.InputDevice.SOURCE_TOUCHSCREEN; tv.dispatchTouchEvent(it); it.recycle() }
-                pressing = false
-            }, android.view.ViewConfiguration.getLongPressTimeout() + 150L)
-        }, wait)
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && !tv.hasSelection()) {
+            val which = pinAt(ev.x, ev.y)
+            if (which != 0) {
+                beginDrag(which, ev)
+                return true
+            }
+        }
+        return dragging != 0 || super.onInterceptTouchEvent(ev)
     }
 
-    /** Take the handles off. Every drag is already saved. */
-    fun stopResize() {
-        val m = resizeMode
-        if (m != null) { m.finish(); return }
-        if (resizing == null) return
-        resizing = null
-        (tv.text as? Spannable)?.let { Selection.removeSelection(it) }
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        if (dragging == 0) return super.onTouchEvent(ev)
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> { fingerX = ev.x; fingerY = ev.y; dragStep() }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> endDrag()
+        }
+        return true
+    }
+
+    private fun beginDrag(which: Int, ev: MotionEvent) {
+        val (a, b) = tv.pins() ?: return
+        val p = if (which < 0) a else b
+        dragging = which
+        dragFrom = pinWords
+        fingerX = ev.x
+        fingerY = ev.y
+        // Remember where on the handle the finger landed, so the end does not jump to the finger.
+        grabDx = p.x - (ev.x + scrollX - tv.left)
+        grabDy = (p.top + p.bottom) / 2f - (ev.y + scrollY - tv.top)
+        parent?.requestDisallowInterceptTouchEvent(true)
+        setPaused(true)
+        if (android.os.Build.VERSION.SDK_INT >= 28) magnifier = android.widget.Magnifier(tv)
+        tv.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+    }
+
+    /** Move the held end to the word under the finger. It stops at the other end, so at least one word stays. */
+    private fun dragStep() {
+        val d = doc ?: return
+        val l = tv.layout ?: return
+        val r = pinWords ?: return
+        if (d.words.isEmpty()) return
+        val tx = fingerX + scrollX - tv.left + grabDx
+        val ty = fingerY + scrollY - tv.top + grabDy
+        val line = l.getLineForVertical((ty - tv.totalPaddingTop).toInt().coerceIn(0, l.height - 1))
+        val off = l.getOffsetForHorizontal(line, tx - tv.totalPaddingLeft)
+        val next = Highlights.pull(d.words, r, dragging < 0, off)
+        if (next != r) {
+            pinWords = next
+            tv.performHapticFeedback(
+                if (android.os.Build.VERSION.SDK_INT >= 27) android.view.HapticFeedbackConstants.TEXT_HANDLE_MOVE
+                else android.view.HapticFeedbackConstants.CLOCK_TICK,
+            )
+            drawRuns()
+        }
+        tv.pins()?.let { (a, b) ->
+            val p = if (dragging < 0) a else b
+            if (android.os.Build.VERSION.SDK_INT >= 28) magnifier?.show(p.x, (p.top + p.bottom) / 2f)
+        }
+        // Near the top or bottom edge, the page scrolls so a highlight can grow past what is on screen.
+        val edge = dp(56)
+        val speed = when {
+            fingerY < edge -> -((edge - fingerY) / edge * dp(18)).toInt().coerceAtLeast(1)
+            fingerY > height - edge -> ((fingerY - (height - edge)) / edge * dp(18)).toInt().coerceAtLeast(1)
+            else -> 0
+        }
+        removeCallbacks(edgeScroll)
+        if (speed != 0) {
+            edgeSpeed = speed
+            postOnAnimation(edgeScroll)
+        }
+    }
+
+    private var edgeSpeed = 0
+    private val edgeScroll = Runnable {
+        if (dragging == 0) return@Runnable
+        glidingUntil = SystemClock.uptimeMillis() + 300
+        scrollBy(0, edgeSpeed)
+        dragStep()
+    }
+
+    private fun endDrag() {
+        val id = pinned
+        val r = pinWords
+        val was = dragFrom
+        dragging = 0
+        dragFrom = null
+        removeCallbacks(edgeScroll)
+        if (android.os.Build.VERSION.SDK_INT >= 28) magnifier?.dismiss()
+        magnifier = null
+        lastTouch = SystemClock.uptimeMillis()
+        if (id != null && r != null && r != was) onResize(id, r.first, r.last)
     }
 
     init {
@@ -280,15 +443,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
         tv.setTextIsSelectable(true)
         tv.customSelectionActionModeCallback = selectionCallback()
         tv.setPadding(dp(18), dp(10), dp(18), dp(160))
-        tv.onSelectionMoved = {
-            if (resizing != null && !resizeFresh) {
-                removeCallbacks(saveResize)
-                postDelayed(saveResize, 120)
-            }
-        }
         tv.setOnTouchListener { _, ev ->
-            // Our own long press is not the reader's finger.
-            if (pressing) return@setOnTouchListener false
             lastTouch = SystemClock.uptimeMillis()
             // A finger on the page beats a glide that is still running.
             if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) glide?.cancel()
@@ -483,13 +638,24 @@ class TranscriptView(context: Context) : ScrollView(context) {
      * [byWord] holds a colour index per word, or -1. [runs] is each highlight's words and colour, outer ones first.
      * Each is drawn on its own, so a highlight inside another one shows darker on top of it.
      */
-    fun applyHighlights(byWord: IntArray, runs: List<Pair<IntRange, Int>>) {
+    fun applyHighlights(byWord: IntArray, runs: List<HighlightRun>) {
         colors = byWord
         ownRuns = runs
+        if (dragging == 0) {
+            val open = runs.firstOrNull { it.id == pinned }
+            if (pinned != null && open == null) stopResize() else if (open != null) pinWords = open.words
+        }
+        drawRuns()
+    }
+
+    private fun drawRuns() {
+        val runs = ownRuns ?: return
         val d = doc ?: return
         val s = style ?: return
         val out = ArrayList<Mark>()
-        for ((r, c) in runs) {
+        for (run in runs) {
+            val r = if (run.id == pinned) pinWords ?: run.words else run.words
+            val c = run.color
             var i = r.first.coerceAtLeast(0)
             val last = r.last.coerceAtMost(d.words.lastIndex)
             while (i <= last) {
@@ -501,9 +667,10 @@ class TranscriptView(context: Context) : ScrollView(context) {
             }
         }
         tv.highlights = out
+        showPins()
     }
 
-    private var ownRuns: List<Pair<IntRange, Int>>? = null
+    private var ownRuns: List<HighlightRun>? = null
 
     /** [byWord] holds a colour index per word, or -1. */
     fun applyHighlights(byWord: IntArray) {
@@ -592,8 +759,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
 
     private val tapDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapUp(e: MotionEvent): Boolean {
-            // With handles on a highlight, a tap still opens another highlight or puts these away.
-            if (tv.hasSelection() && resizing == null) return false
+            if (tv.hasSelection()) return false
             val d = doc ?: return false
             val off = tv.getOffsetForPosition(e.x, e.y)
             val w = d.wordAtChar(off)
@@ -612,20 +778,6 @@ class TranscriptView(context: Context) : ScrollView(context) {
 
     private fun selectionCallback() = object : ActionMode.Callback2() {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-            resizing?.let { (_, r) ->
-                val d = doc
-                val t = tv.text as? Spannable
-                // Only the first time: later the handles hold whatever the reader dragged them to.
-                if (resizeFresh && d != null && t != null && r.first in d.words.indices) {
-                    Selection.setSelection(t, d.words[r.first].charStart, d.words[r.last.coerceAtMost(d.words.lastIndex)].charEnd)
-                }
-                resizeFresh = false
-                resizeMode = mode
-                // The highlight's own colour shows while its ends move, not the selection colour on top of it.
-                tv.highlightColor = Color.TRANSPARENT
-                menu.clear()
-                return true
-            }
             if (style?.highlighterOn == false) return false
             expand(style?.holdSelects ?: "word")
             menu.clear()
@@ -642,12 +794,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
             return true
         }
 
-        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            // While the ends of a highlight move there is nothing to pick. The note bar has the rest.
-            if (resizing == null || menu.findItem(android.R.id.selectAll) == null) return false
-            menu.removeItem(android.R.id.selectAll)
-            return true
-        }
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
             val d = doc ?: return false
@@ -672,14 +819,6 @@ class TranscriptView(context: Context) : ScrollView(context) {
         }
 
         override fun onDestroyActionMode(mode: ActionMode) {
-            if (mode === resizeMode) {
-                // Save the last drag now, then put the normal selection colour back.
-                removeCallbacks(saveResize)
-                saveResize.run()
-                resizeMode = null
-                resizing = null
-                style?.let { tv.highlightColor = (it.accent and 0x00FFFFFF) or 0x55000000 }
-            }
             val t = tv.text
             if (t is Spannable) Selection.removeSelection(t)
         }
