@@ -15,7 +15,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.material.icons.rounded.Expand
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Search
@@ -277,6 +276,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     }
     val colors = remember(doc, video.highlights) { doc?.let { Highlights.colorByWord(it.words, video.highlights) } }
     val noted = remember(doc, video.highlights) { doc?.let { Highlights.notedRuns(it.words, video.highlights) } }
+    val runs = remember(doc, video.highlights) { doc?.let { Highlights.runs(it.words, video.highlights) } }
     val activeWord by remember(doc) { derivedStateOf { doc?.wordAtTime(ps.value.positionSec) ?: -1 } }
     val playerError by remember { derivedStateOf { ps.value.error } }
     val canWatch by remember { derivedStateOf { ps.value.canWatch } }
@@ -344,7 +344,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     androidx.activity.compose.BackHandler(enabled = searching) { searching = false }
     androidx.activity.compose.BackHandler(enabled = editingId != null) { editingId = null }
     // Working on a highlight: stay where you are, and offer the Sync button.
-    LaunchedEffect(editingId) { if (editingId != null) tview?.pauseFollow() else noteFocused = false }
+    LaunchedEffect(editingId) {
+        if (editingId != null) tview?.pauseFollow()
+        else { noteFocused = false; tview?.stopResize() }
+    }
     // The note bar takes room from the text. Keep the marked words in view above it.
     LaunchedEffect(editingId) {
         val id = editingId ?: return@LaunchedEffect
@@ -494,26 +497,33 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             tv.currentColor = settings.highlightColor
                             tv.onAway = { away = it && settings.autoScroll }
                             tv.onTapWord = { w ->
-                                val h = video.highlights.firstOrNull { it.w0 >= 0 && w >= it.w0 && w <= it.w1 }
-                                // In full screen a stray tap must not jump the audio.
-                                if (h != null) { editingId = h.id; true } else immersive
+                                val h = Highlights.at(video.highlights, w)
+                                when {
+                                    // Tapping a highlight opens it with handles on its ends, ready to drag.
+                                    h != null -> { editingId = h.id; tv.startResize(h.id, h.w0..h.w1); true }
+                                    // A tap beside it puts it away.
+                                    editingId != null -> { editingId = null; true }
+                                    // In full screen a stray tap must not jump the audio.
+                                    else -> immersive
+                                }
                             }
                             tv.onPaint = { a, b, color ->
                                 val next = Highlights.apply(video.highlights, d.words, d::plainText, a, b, color)
                                 app.library.edit(videoId) { it.copy(highlights = next) }
                                 app.settings.update { s -> s.copy(highlightColor = color) }
-                                // open the note bar on the highlight that was just made
-                                editingId = next.firstOrNull { it.w0 >= 0 && a >= it.w0 && a <= it.w1 }?.id
+                                // open the note bar on the highlight that was just made, with handles on it
+                                val made = next.firstOrNull { it.w0 == minOf(a, b) && it.w1 == maxOf(a, b) }
+                                editingId = made?.id
+                                if (made != null) tv.post { tv.startResize(made.id, made.w0..made.w1) }
                             }
                             tv.onResize = { id, a, b ->
                                 app.library.edit(videoId) { it.copy(highlights = Highlights.resize(it.highlights, d.words, d::plainText, id, a, b)) }
-                                editingId = id
                             }
                             tv.onErase = { a, b ->
                                 app.library.edit(videoId) { it.copy(highlights = Highlights.erase(it.highlights, d.words, d::plainText, a, b)) }
                             }
                             tv.bind(d, style)
-                            colors?.let { tv.applyHighlights(it) }
+                            colors?.let { tv.applyHighlights(it, runs.orEmpty()) }
                             noted?.let { tv.applyNotes(it) }
                             tv.setActive(androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { activeWord })
                         },
@@ -562,10 +572,6 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                             }
                         },
                         onPlay = { seek(h.startSec) },
-                        onResize = if (h.w0 >= 0) ({
-                            editingId = null
-                            tview?.startResize(h.id, h.w0..h.w1)
-                        }) else null,
                         onClose = { editingId = null },
                     )
                 }
@@ -896,7 +902,6 @@ private fun HighlightNoteBar(
     onColor: (Int) -> Unit,
     onDelete: () -> Unit,
     onPlay: () -> Unit,
-    onResize: (() -> Unit)?,
     onClose: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -994,15 +999,6 @@ private fun HighlightNoteBar(
                 }
                 if (vault != null) IconButton(onClick = { linkTyped = false; linking = true }, Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Link, "Link a note", tint = scheme.onSurfaceVariant)
-                }
-                // Drag handles onto the ends of the highlight, to make it longer or shorter.
-                if (onResize != null) androidx.compose.material3.TextButton(
-                    onClick = { onNote(text); onResize() },
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
-                ) {
-                    Icon(Icons.Rounded.Expand, null, Modifier.size(18.dp).graphicsLayer { rotationZ = 90f }, tint = scheme.onSurfaceVariant)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Length", color = scheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onPlay, Modifier.size(40.dp)) { Icon(Icons.Rounded.PlayArrow, "Play from here", tint = scheme.onSurfaceVariant) }

@@ -113,9 +113,10 @@ class NoteTest {
         val txt = doc::plainText
         val a = Highlights.apply(emptyList(), doc.words, txt, 2, 6, 0)
         assertEquals(1, a.size)
-        // paint over the middle in red: the yellow one is cut in two, red sits between
+        // highlight the middle in red: it is its own highlight, and the yellow one stays whole
         val b = Highlights.apply(a, doc.words, txt, 4, 4, 1)
-        assertEquals(3, b.size)
+        assertEquals(2, b.size)
+        assertEquals(listOf(2..6, 4..4), b.map { it.w0..it.w1 })
         val colors = Highlights.colorByWord(doc.words, b)
         assertEquals(listOf(0, 0, 1, 0, 0), (2..6).map { colors[it] })
         // erase the red word and one yellow neighbour

@@ -29,11 +29,31 @@ class ResizeTest {
     }
 
     @Test
-    fun growingOverAnotherHighlightCutsIt() {
+    fun growingOverAnotherHighlightLeavesItAlone() {
         val other = Highlight("other", 8.0, 12.0, "x", color = 1, w0 = 8, w1 = 11)
         val out = Highlights.resize(listOf(h, other), words, text, "keep", 4, 9)
-        assertEquals(listOf(4..9, 10..11), out.map { it.w0..it.w1 })
+        assertEquals(listOf(4..9, 8..11), out.map { it.w0..it.w1 })
         assertEquals(listOf(3, 1), out.map { it.color })
+    }
+
+    @Test
+    fun aHighlightInsideAnotherIsItsOwn() {
+        val inner = Highlights.apply(listOf(h), words, text, 5, 5, 1)
+        assertEquals(listOf(4..6, 5..5), inner.map { it.w0..it.w1 })
+        assertEquals("my note", inner.first { it.id == "keep" }.note)
+        // the inner one wins its word, and a tap there opens it, not the outer one
+        assertEquals(listOf(3, 1, 3), Highlights.colorByWord(words, inner).slice(4..6))
+        assertEquals(5..5, Highlights.at(inner, 5)!!.let { it.w0..it.w1 })
+        assertEquals("keep", Highlights.at(inner, 4)!!.id)
+        // drawn outer first, so the inner one sits on top
+        assertEquals(listOf(4..6, 5..5), Highlights.runs(words, inner).map { it.first })
+    }
+
+    @Test
+    fun theSameWordsAgainOnlyChangeColour() {
+        val out = Highlights.apply(listOf(h), words, text, 4, 6, 2)
+        assertEquals(1, out.size)
+        assertEquals(listOf("keep", 2, "my note"), listOf(out[0].id, out[0].color, out[0].note))
     }
 
     @Test

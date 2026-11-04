@@ -88,6 +88,14 @@ private class PageText(context: Context) : TextView(context) {
     var noted: List<Mark> = emptyList()
         set(v) { field = v; refresh() }
 
+    /** Called when the selection moves. Nullable, because TextView can move it before this class is set up. */
+    var onSelectionMoved: (() -> Unit)? = null
+
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        onSelectionMoved?.invoke()
+    }
+
     fun refresh() {
         built = null
         invalidate()
@@ -202,36 +210,65 @@ class TranscriptView(context: Context) : ScrollView(context) {
     /** Take highlights off words [first, last]. */
     var onErase: (first: Int, last: Int) -> Unit = { _, _ -> }
 
-    /** The ends of highlight [id] were moved to words [first, last]. */
+    /** The ends of highlight [id] were moved to words [first, last]. Called while the handles are dragged. */
     var onResize: (id: String, first: Int, last: Int) -> Unit = { _, _, _ -> }
 
-    /** The highlight whose ends are being dragged, and its words before the drag. */
+    /** The highlight with handles on its ends, and the words it covers now. */
     private var resizing: Pair<String, IntRange>? = null
+
+    /** True until the handles are on the highlight. Before that a selection change is the long press, not a drag. */
     private var resizeFresh = false
+    private var resizeMode: ActionMode? = null
+
+    /** True while this view sends its own long press. */
+    private var pressing = false
+
+    private val saveResize = Runnable {
+        val (id, was) = resizing ?: return@Runnable
+        val r = doc?.wordsInSelection(tv.selectionStart.coerceAtLeast(0), tv.selectionEnd.coerceAtLeast(0)) ?: return@Runnable
+        if (r != was) {
+            resizing = id to r
+            onResize(id, r.first, r.last)
+        }
+    }
 
     /**
-     * Put the selection handles on the ends of highlight [id], so the reader can drag them.
+     * Put the selection handles on the ends of highlight [id], so the reader can drag them. Each drag saves by itself.
      * A real long press is the only way to get the handles, so one is sent to the first word.
      */
     fun startResize(id: String, words: IntRange) {
         val d = doc ?: return
         if (words.first !in d.words.indices) return
+        if (resizing?.first == id && resizeMode != null) return
+        resizeMode?.finish()
         resizing = id to words
         resizeFresh = true
         val wait = if (isVisible(words.first)) 0L else { scrollToWord(words.first); 450L }
         postDelayed({
+            if (resizing?.first != id) return@postDelayed
             val layout = tv.layout ?: return@postDelayed
             val w = d.words[words.first]
             val line = layout.getLineForOffset(w.charStart)
             val x = (layout.getPrimaryHorizontal(w.charStart) + layout.getPrimaryHorizontal(w.charEnd.coerceAtMost(layout.getLineEnd(line)))) / 2f + tv.paddingLeft
             val y = (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f + tv.paddingTop
             val t0 = SystemClock.uptimeMillis()
+            pressing = true
             MotionEvent.obtain(t0, t0, MotionEvent.ACTION_DOWN, x, y, 0).also { it.source = android.view.InputDevice.SOURCE_TOUCHSCREEN; tv.dispatchTouchEvent(it); it.recycle() }
             postDelayed({
                 val t1 = SystemClock.uptimeMillis()
                 MotionEvent.obtain(t0, t1, MotionEvent.ACTION_UP, x, y, 0).also { it.source = android.view.InputDevice.SOURCE_TOUCHSCREEN; tv.dispatchTouchEvent(it); it.recycle() }
+                pressing = false
             }, android.view.ViewConfiguration.getLongPressTimeout() + 150L)
         }, wait)
+    }
+
+    /** Take the handles off. Every drag is already saved. */
+    fun stopResize() {
+        val m = resizeMode
+        if (m != null) { m.finish(); return }
+        if (resizing == null) return
+        resizing = null
+        (tv.text as? Spannable)?.let { Selection.removeSelection(it) }
     }
 
     init {
@@ -243,7 +280,15 @@ class TranscriptView(context: Context) : ScrollView(context) {
         tv.setTextIsSelectable(true)
         tv.customSelectionActionModeCallback = selectionCallback()
         tv.setPadding(dp(18), dp(10), dp(18), dp(160))
+        tv.onSelectionMoved = {
+            if (resizing != null && !resizeFresh) {
+                removeCallbacks(saveResize)
+                postDelayed(saveResize, 120)
+            }
+        }
         tv.setOnTouchListener { _, ev ->
+            // Our own long press is not the reader's finger.
+            if (pressing) return@setOnTouchListener false
             lastTouch = SystemClock.uptimeMillis()
             // A finger on the page beats a glide that is still running.
             if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) glide?.cancel()
@@ -296,7 +341,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
             tv.refresh()
             applySidePadding(width)
             post { scrollTo(0, keepY) }
-            if (colors.isNotEmpty()) applyHighlights(colors)
+            if (colors.isNotEmpty()) ownRuns?.let { applyHighlights(colors, it) } ?: applyHighlights(colors)
         }
     }
 
@@ -434,8 +479,35 @@ class TranscriptView(context: Context) : ScrollView(context) {
 
     // ---------- highlights and the active word ----------
 
+    /**
+     * [byWord] holds a colour index per word, or -1. [runs] is each highlight's words and colour, outer ones first.
+     * Each is drawn on its own, so a highlight inside another one shows darker on top of it.
+     */
+    fun applyHighlights(byWord: IntArray, runs: List<Pair<IntRange, Int>>) {
+        colors = byWord
+        ownRuns = runs
+        val d = doc ?: return
+        val s = style ?: return
+        val out = ArrayList<Mark>()
+        for ((r, c) in runs) {
+            var i = r.first.coerceAtLeast(0)
+            val last = r.last.coerceAtMost(d.words.lastIndex)
+            while (i <= last) {
+                var j = i
+                // A run stops at the end of a paragraph, so the time stamp on the next one stays clean.
+                while (j < last && !breakBetween(d, j)) j++
+                out += Mark(d.words[i].charStart, d.words[j].charEnd, tint(c, s))
+                i = j + 1
+            }
+        }
+        tv.highlights = out
+    }
+
+    private var ownRuns: List<Pair<IntRange, Int>>? = null
+
     /** [byWord] holds a colour index per word, or -1. */
     fun applyHighlights(byWord: IntArray) {
+        ownRuns = null
         colors = byWord
         val d = doc ?: return
         val s = style ?: return
@@ -520,7 +592,8 @@ class TranscriptView(context: Context) : ScrollView(context) {
 
     private val tapDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapUp(e: MotionEvent): Boolean {
-            if (tv.hasSelection()) return false
+            // With handles on a highlight, a tap still opens another highlight or puts these away.
+            if (tv.hasSelection() && resizing == null) return false
             val d = doc ?: return false
             val off = tv.getOffsetForPosition(e.x, e.y)
             val w = d.wordAtChar(off)
@@ -547,9 +620,10 @@ class TranscriptView(context: Context) : ScrollView(context) {
                     Selection.setSelection(t, d.words[r.first].charStart, d.words[r.last.coerceAtMost(d.words.lastIndex)].charEnd)
                 }
                 resizeFresh = false
+                resizeMode = mode
+                // The highlight's own colour shows while its ends move, not the selection colour on top of it.
+                tv.highlightColor = Color.TRANSPARENT
                 menu.clear()
-                menu.add(Menu.NONE, ID_RESIZE_SAVE, 0, "Save").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-                menu.add(Menu.NONE, ID_RESIZE_CANCEL, 1, "Cancel").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
                 return true
             }
             if (style?.highlighterOn == false) return false
@@ -569,7 +643,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
         }
 
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
-            // While the ends of a highlight move, only Save and Cancel make sense.
+            // While the ends of a highlight move there is nothing to pick. The note bar has the rest.
             if (resizing == null || menu.findItem(android.R.id.selectAll) == null) return false
             menu.removeItem(android.R.id.selectAll)
             return true
@@ -588,11 +662,6 @@ class TranscriptView(context: Context) : ScrollView(context) {
                     }
                 }
                 ID_ERASE -> range?.let { onErase(it.first, it.last) }
-                ID_RESIZE_SAVE -> {
-                    val id = resizing?.first
-                    if (id != null && range != null) onResize(id, range.first, range.last)
-                }
-                ID_RESIZE_CANCEL -> {}
                 else -> if (item.itemId >= ID_COLOR && item.itemId < ID_COLOR + HighlightColors.size && range != null) {
                     tv.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
                     onPaint(range.first, range.last, item.itemId - ID_COLOR)
@@ -603,7 +672,14 @@ class TranscriptView(context: Context) : ScrollView(context) {
         }
 
         override fun onDestroyActionMode(mode: ActionMode) {
-            resizing = null
+            if (mode === resizeMode) {
+                // Save the last drag now, then put the normal selection colour back.
+                removeCallbacks(saveResize)
+                saveResize.run()
+                resizeMode = null
+                resizing = null
+                style?.let { tv.highlightColor = (it.accent and 0x00FFFFFF) or 0x55000000 }
+            }
             val t = tv.text
             if (t is Spannable) Selection.removeSelection(t)
         }
@@ -655,8 +731,6 @@ class TranscriptView(context: Context) : ScrollView(context) {
         const val ID_COPY = 201
         const val ID_SENTENCE = 202
         const val ID_PARAGRAPH = 203
-        const val ID_RESIZE_SAVE = 204
-        const val ID_RESIZE_CANCEL = 205
         const val MATCH = 0x66FFD54F
         const val MATCH_NOW = 0xCCFF9800.toInt()
     }
