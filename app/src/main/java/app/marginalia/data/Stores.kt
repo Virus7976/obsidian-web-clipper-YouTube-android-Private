@@ -28,19 +28,40 @@ abstract class JsonFileStore<T>(private val file: File) {
     protected abstract fun encode(value: T): String
     protected abstract fun decode(text: String): T
 
-    protected fun readOrNull(): T? = runCatching { decode(file.readText()) }.getOrNull()
+    private val backup get() = File(file.path + ".bak")
+
+    /**
+     * The file, or the copy from the save before it when the file is empty or broken. A phone that dies
+     * mid-save can leave an empty file, and reading that as "nothing saved" would wipe the library on
+     * the next save.
+     */
+    protected fun readOrNull(): T? = StoreFiles.read(file, backup, ::decode)
 
     protected fun persist(value: T) {
         scope.launch {
-            lock.withLock {
-                runCatching {
-                    file.parentFile?.mkdirs()
-                    val tmp = File(file.path + ".tmp")
-                    tmp.writeText(encode(value))
-                    tmp.renameTo(file)
-                }
-            }
+            lock.withLock { runCatching { StoreFiles.write(file, backup, encode(value)) } }
         }
+    }
+}
+
+/** Saving that survives the phone dying halfway: the new text reaches the disk before it replaces the old. */
+object StoreFiles {
+    fun <T> read(file: File, backup: File, decode: (String) -> T): T? {
+        fun from(f: File) = runCatching { f.readText().takeIf { it.isNotBlank() }?.let(decode) }.getOrNull()
+        return from(file) ?: from(backup)
+    }
+
+    fun write(file: File, backup: File, text: String) {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.path + ".tmp")
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(text.toByteArray())
+            out.flush()
+            out.fd.sync()
+        }
+        // Keep the last good copy. A file that is empty now is not good, so it never replaces the copy.
+        if (file.length() > 0) file.copyTo(backup, overwrite = true)
+        if (!tmp.renameTo(file)) { tmp.copyTo(file, overwrite = true); tmp.delete() }
     }
 }
 

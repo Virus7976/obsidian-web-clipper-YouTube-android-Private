@@ -237,7 +237,8 @@ fun ReaderHeader(
                 if (picture || videoHeight > 1.dp) AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { c ->
-                        PlayerView(c).apply {
+                        // A TextureView, so the picture slides and fades with the screen instead of lagging behind it.
+                        (android.view.LayoutInflater.from(c).inflate(app.marginalia.R.layout.player_texture, null) as PlayerView).apply {
                             useController = false
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                             player = host.exo

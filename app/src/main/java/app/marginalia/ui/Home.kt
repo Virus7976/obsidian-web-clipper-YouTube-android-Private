@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -199,8 +200,21 @@ fun HomeScreen(
             state = pullState,
             indicator = { PixelIndicator(pullState, refreshing, settings.pixelChar) },
         ) {
+        // Changing tab: the new page fades in and slides a little from the side of the tab you came from.
+        val tabIndex = visibleTabs.indexOf(tab).coerceAtLeast(0)
+        // The new page starts hidden in the very frame the tab changes, so the old value never flashes it in.
+        val lastTab = remember { intArrayOf(tabIndex) }
+        val tabWay = remember(tabIndex) { if (tabIndex >= lastTab[0]) 1 else -1 }
+        val tabIn = remember(tabIndex) { androidx.compose.animation.core.Animatable(if (tabIndex == lastTab[0]) 1f else 0f) }
+        LaunchedEffect(tabIndex) {
+            lastTab[0] = tabIndex
+            tabIn.animateTo(1f, androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0.9f, 0.1f, 1f)))
+        }
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                alpha = tabIn.value
+                translationX = (1f - tabIn.value) * tabWay * 28.dp.toPx()
+            },
             state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,

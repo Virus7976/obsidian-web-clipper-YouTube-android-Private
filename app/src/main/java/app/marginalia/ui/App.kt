@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -157,18 +158,24 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 AnimatedContent(
                     targetState = stack.last(),
+                    // Like an iPhone: a new screen slides in over the old one from the right edge, and the old one
+                    // drifts a little to the left under it. Back is the same in reverse. Nothing scales and nothing
+                    // fades out from under you, so the page you are looking at stays solid the whole way.
                     transitionSpec = {
                         val deeper = depth(targetState) >= depth(initialState)
+                        val move = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(380, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0.9f, 0.1f, 1f))
                         if (deeper) {
-                            (slideInHorizontally(spring(spring.damping, spring.stiffness)) { it / 5 } + fadeIn(spring(1f, 500f))) togetherWith
-                                (fadeOut(spring(1f, 700f)))
+                            (slideInHorizontally(move) { it } togetherWith slideOutHorizontally(move) { -it / 4 })
+                                .apply { targetContentZIndex = 1f }
                         } else {
-                            (fadeIn(spring(1f, 500f)) + scaleIn(spring(spring.damping, spring.stiffness), initialScale = 0.94f)) togetherWith
-                                (slideOutHorizontally(spring(spring.damping, spring.stiffness)) { it / 5 } + fadeOut(spring(1f, 700f)))
+                            (slideInHorizontally(move) { -it / 4 } togetherWith slideOutHorizontally(move) { it })
+                                .apply { targetContentZIndex = -1f }
                         }
                     },
                     label = "screens",
                 ) { screen ->
+                    // Each screen is solid, so the one underneath never shows through while they slide.
+                    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     saved.SaveableStateProvider(screen.toString()) {
                     when (screen) {
                         Screen.Home -> HomeScreen(
@@ -187,6 +194,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                         is Screen.Template -> TemplateEditorScreen(screen.id, onBack = { pop() })
                         Screen.Review -> ReviewScreen(onBack = { pop() })
                         Screen.Highlights -> HighlightsScreen(onBack = { pop() })
+                    }
                     }
                     }
                 }
