@@ -14,8 +14,8 @@ android {
         applicationId = "app.marginalia"
         minSdk = 26
         targetSdk = 36
-        versionCode = 56
-        versionName = "2.15.6"
+        versionCode = 57
+        versionName = "2.15.7"
     }
 
     // The release key never lives in the repo. GitHub passes it in through secrets (see
@@ -98,7 +98,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.8.0")
 
     // Playback fallback maintained by the NewPipe team. The auto-update workflow bumps this line.
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.27.0")
     // installers: Shizuku, and wireless ADB (libadb-android) for installing updates without the system prompt
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
