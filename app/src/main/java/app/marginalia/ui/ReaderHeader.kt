@@ -152,7 +152,9 @@ fun ReaderHeader(
     val picture by remember { derivedStateOf { ps.value.videoOn } }
     val playing by remember { derivedStateOf { ps.value.playing } }
     val waiting by remember { derivedStateOf { ps.value.error == null && (ps.value.loading || (ps.value.buffering && !ps.value.playing)) } }
-    val t by animateFloatAsState(if (collapsed) 1f else 0f, spring(1f, 500f), label = "fold")
+    // Listening has one small bar: the folded one, with the thumbnail. It never unfolds into a second small bar.
+    val folded = collapsed || !picture
+    val t by animateFloatAsState(if (folded) 1f else 0f, spring(1f, 500f), label = "fold")
 
     // Over the picture the buttons come and go: a tap shows them, and they leave after a few seconds.
     // A paused video keeps them, because there is nothing to watch.
@@ -172,6 +174,11 @@ fun ReaderHeader(
     LaunchedEffect(collapsed, picture) { if (collapsed || picture) listenOpen = false }
     LaunchedEffect(listenOpen, listenPokes, menuOpen) { if (listenOpen && !menuOpen) { delay(5000); listenOpen = false } }
     val controlsOpen = !picture && listenOpen
+    // One tap on the small bar does the one thing it can: show the picture's player, or open the listening controls.
+    fun tapBar() {
+        if (picture) onExpand()
+        else { listenOpen = !listenOpen; if (listenOpen && collapsed) onExpand() }
+    }
 
     BoxWithConstraints(Modifier.fillMaxWidth().background(if (full) Color.Black else scheme.background).clipToBounds()) {
         val width = maxWidth
@@ -182,11 +189,12 @@ fun ReaderHeader(
         val videoHeight by animateDpAsState(if (picture) fullHeight else 0.dp, spring(1f, 450f), label = "picture")
         val openTop = 0.dp
         // The 3dp under the picture is the thin progress line, so you can see how much is left with the buttons hidden.
-        val openTarget = if (full) room else if (picture) fullHeight + 3.dp else if (controlsOpen) TopRow + Controls else TopRow + 3.dp
+        val openTarget = if (full) room else if (picture) fullHeight + 3.dp else SmallRow
         val open by animateDpAsState(openTarget, spring(1f, 450f), label = "open")
+        val extra by animateDpAsState(if (controlsOpen) Controls else 0.dp, spring(1f, 450f), label = "controls")
         val tap = remember { MutableInteractionSource() }
 
-        Box(Modifier.fillMaxWidth().height(lerp(open, SmallRow, t))) {
+        Box(Modifier.fillMaxWidth().height(lerp(open, SmallRow, t) + extra)) {
             val rowAlpha by animateFloatAsState(if (!picture) 1f else t, tween(220), label = "rowAlpha")
             if (rowAlpha > 0f) Row(
                 Modifier.fillMaxWidth().height(lerp(TopRow, SmallRow, t)).graphicsLayer { alpha = rowAlpha }.padding(horizontal = 4.dp),
@@ -196,15 +204,15 @@ fun ReaderHeader(
                 Spacer(Modifier.width(lerp(0.dp, 84.dp, t)))
                 Column(
                     Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp).clickable(
-                        tap, null, enabled = collapsed || !picture,
-                        onClickLabel = if (collapsed) "Show the player" else if (listenOpen) "Hide the controls" else "Show the controls",
-                        onClick = { if (collapsed) onExpand() else listenOpen = !listenOpen },
+                        tap, null, enabled = folded,
+                        onClickLabel = if (picture) "Show the player" else if (listenOpen) "Hide the controls" else "Show the controls",
+                        onClick = ::tapBar,
                     ),
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(video.meta.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    // With the controls open, the seek bar has the times, so the channel goes here. Otherwise the time does.
-                    if (controlsOpen && t == 0f) {
+                    // With the controls open, the row under has the times, so the channel goes here. Otherwise the time does.
+                    if (controlsOpen) {
                         if (video.meta.author.isNotBlank()) Text(
                             video.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
@@ -212,7 +220,7 @@ fun ReaderHeader(
                     } else SmallTime(ps, Modifier)
                 }
                 // One play button at a time: with the controls open, the big one below has the job.
-                if (collapsed || !controlsOpen) MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 40.dp)
+                if (folded && !controlsOpen) MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 40.dp)
                 Box {
                     IconButton(onClick = { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, "More") }
                     ReaderMenu(menuOpen, onMenu, menuItems)
@@ -240,11 +248,11 @@ fun ReaderHeader(
                 if (picture && waiting) LoadingIndicator()
                 Box(
                     Modifier.fillMaxSize()
-                        .pointerInput(collapsed) {
+                        .pointerInput(folded, picture, collapsed) {
                             detectTapGestures(
-                                onTap = { if (collapsed) onExpand() else shown = !shown },
+                                onTap = { if (folded) tapBar() else shown = !shown },
                                 // Folded, a tap must answer at once, so there is no wait for a second tap.
-                                onDoubleTap = if (collapsed) null else { o ->
+                                onDoubleTap = if (folded) null else { o ->
                                     skipWay = if (o.x < size.width / 2f) -1 else 1
                                     host.skip(skipWay * 10.0)
                                     skips++
@@ -252,7 +260,7 @@ fun ReaderHeader(
                                 },
                             )
                         }
-                        .semantics { onClick(if (collapsed) "Show the player" else "Show the buttons") { if (collapsed) onExpand() else shown = !shown; true } },
+                        .semantics { onClick(if (folded) "Show the player" else "Show the buttons") { if (folded) tapBar() else shown = !shown; true } },
                 )
                 // The buttons need the whole picture. While it grows or folds they stay away, or they pile up in a thin strip.
                 val grown = if (fullHeight > 0.dp) (videoHeight / fullHeight) else 0f
@@ -279,12 +287,12 @@ fun ReaderHeader(
             }
 
             val ctlAlpha by animateFloatAsState(if (controlsOpen) 1f else 0f, tween(220), label = "ctlAlpha")
-            if (ctlAlpha > 0f && t < 1f) Column(
-                Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (ctlAlpha * (1f - t * 2f)).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
+            if (ctlAlpha > 0f && !picture) Column(
+                Modifier.offset(y = SmallRow).height(Controls).graphicsLayer { alpha = ctlAlpha }.padding(horizontal = 12.dp),
             ) { PlayerControls(ps, host, chapters, onJump, onPoke = { listenPokes++ }) }
         }
-        // One bar at a time: while the buttons are on the picture they have the seek bar, so this line waits.
-        if ((picture && !(shown || !playing)) || (!picture && !controlsOpen) || t > 0f) SmallProgress(ps, chapters, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
+        // One bar at a time: the open controls and the buttons on the picture have their own seek bar, so this line waits.
+        if (!controlsOpen && (t > 0f || (picture && !(shown || !playing)))) SmallProgress(ps, chapters, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
     }
 }
 

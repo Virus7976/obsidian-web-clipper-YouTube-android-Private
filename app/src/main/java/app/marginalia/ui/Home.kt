@@ -41,6 +41,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.material.icons.rounded.Subscriptions
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
@@ -196,25 +203,19 @@ fun HomeScreen(
             state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                bottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 120.dp,
+                bottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + if (visibleTabs.size > 1) 196.dp else 120.dp,
             ),
         ) {
-            // The tabs are the title, so the top of the screen is one row and it tells you where you are.
+            // The page's name, large, like a title in Apple's apps. The tabs that change it are at the bottom.
             item("head") {
-                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (visibleTabs.size > 1) Row(
-                        Modifier.weight(1f).horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        visibleTabs.forEach { id ->
-                            HomeTab(HomeTabs.getValue(id), tab == id, if (id == "queue") queue.size else 0) {
-                                if (tab != id) tab = id
-                                else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
-                                else scope.launch { listState.animateScrollToItem(0) }
-                            }
-                        }
-                    } else Text("ObsiTube", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                    androidx.compose.material3.FilledTonalIconButton(onClick = { addInitial = null; addOpen = true }, Modifier.size(40.dp)) { Icon(Icons.Rounded.Add, "Add a video") }
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 4.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (visibleTabs.size > 1) HomeTabs.getValue(tab.takeIf { it in visibleTabs } ?: visibleTabs.first()) else "ObsiTube",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                        maxLines = 1,
+                    )
+                    IconButton(onClick = { addInitial = null; addOpen = true }) { Icon(Icons.Rounded.Add, "Add a video") }
                     IconButton(onClick = { searchOpen = true }) { Icon(Icons.Rounded.Search, "Search everything") }
                     IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
                 }
@@ -400,10 +401,22 @@ fun HomeScreen(
         actionsFor?.let { id -> VideoActionsSheet(id, inPlaylist = actionsInPlaylist, pending = actionsMeta, onDismiss = { actionsFor = null }) }
 
         StatusBarScrim()
-        NowPlayingBar(Modifier.align(Alignment.BottomCenter), onOpen)
+        // The mini player rests on the tab bar, like Apple Music: what plays, then where you can go.
+        val tabbed = visibleTabs.size > 1
+        Column(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = 8.dp)) {
+            NowPlayingBar(Modifier, onOpen)
+            if (tabbed) BottomTabs(
+                visibleTabs, tab.takeIf { it in visibleTabs } ?: visibleTabs.first(), queue.size,
+            ) { id ->
+                if (tab != id) tab = id
+                else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
+                else scope.launch { listState.animateScrollToItem(0) }
+            }
+        }
         androidx.compose.material3.SnackbarHost(
             snackbar,
-            Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = if (nowId != null) 92.dp else 12.dp),
+            Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
+                .padding(bottom = (if (nowId != null) 84.dp else 8.dp) + (if (tabbed) 76.dp else 4.dp)),
         )
     }
 }
@@ -424,8 +437,7 @@ private fun NowPlayingBar(modifier: Modifier, onOpen: (String) -> Unit) {
         Surface(
             onClick = { nowId?.let(onOpen) },
             modifier = Modifier
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp, vertical = 4.dp)
                 .fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -631,18 +643,68 @@ private fun VideoCard(v: SavedVideo, onMore: (String) -> Unit, pinned: Boolean =
     }
 }
 
-/** One tab in the top row. It is a word, not a chip: a chip says "filter", and this changes the whole page. */
+
+/**
+ * The tabs, as a floating bar at the bottom, the way Apple's own apps do it: an icon with a small name under
+ * it, and a soft shape behind the chosen one that slides when you change tabs. The thumb reaches it, and the
+ * top of the page is left for the page's name.
+ */
 @Composable
-private fun HomeTab(label: String, selected: Boolean, count: Int, onClick: () -> Unit) {
+private fun BottomTabs(ids: List<String>, selected: String, queueCount: Int, onSelect: (String) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val tone by androidx.compose.animation.animateColorAsState(if (selected) scheme.onSurface else scheme.onSurfaceVariant.copy(alpha = 0.7f), label = "tab")
-    Row(
-        Modifier.height(48.dp).clickable(remember { MutableInteractionSource() }, null, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically,
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val bounds = remember(ids) { androidx.compose.runtime.mutableStateListOf(*Array(ids.size) { 0f to 0f }) }
+    val index = ids.indexOf(selected).coerceAtLeast(0)
+    val (x0, w0) = bounds.getOrElse(index) { 0f to 0f }
+    val x by androidx.compose.animation.core.animateFloatAsState(x0, androidx.compose.animation.core.spring(0.75f, 450f), label = "tabX")
+    val w by androidx.compose.animation.core.animateFloatAsState(w0, androidx.compose.animation.core.spring(0.75f, 450f), label = "tabW")
+    Surface(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().height(64.dp),
+        shape = RoundedCornerShape(32.dp),
+        color = scheme.surfaceContainerHigh,
+        shadowElevation = 8.dp,
     ) {
-        Text(label, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp), color = tone, maxLines = 1)
-        if (count > 0) Text(count.toString(), Modifier.padding(start = 3.dp, bottom = 8.dp), style = MaterialTheme.typography.labelSmall, color = scheme.primary)
+        Box(Modifier.padding(5.dp)) {
+            if (w > 0f) Box(
+                Modifier.offset { androidx.compose.ui.unit.IntOffset(x.toInt(), 0) }
+                    .width(with(density) { w.toDp() }).fillMaxHeight()
+                    .clip(RoundedCornerShape(27.dp)).background(scheme.surfaceContainerHighest),
+            )
+            Row(Modifier.fillMaxSize()) {
+                ids.forEachIndexed { i, id ->
+                    val on = id == selected
+                    val tone by androidx.compose.animation.animateColorAsState(if (on) scheme.primary else scheme.onSurfaceVariant, label = "tabTone")
+                    val label = HomeTabs.getValue(id)
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight()
+                            .onGloballyPositioned { c -> bounds[i] = c.positionInParent().x to c.size.width.toFloat() }
+                            .clip(RoundedCornerShape(27.dp))
+                            .clickable(role = androidx.compose.ui.semantics.Role.Tab, onClickLabel = label) { onSelect(id) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Box {
+                            Icon(tabIcon(id), null, Modifier.size(24.dp), tint = tone)
+                            if (id == "queue" && queueCount > 0) Text(
+                                queueCount.toString(),
+                                Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape).background(scheme.primary)
+                                    .padding(horizontal = 5.dp),
+                                style = MaterialTheme.typography.labelSmall, color = scheme.onPrimary,
+                            )
+                        }
+                        Text(label, style = MaterialTheme.typography.labelSmall, color = tone, maxLines = 1)
+                    }
+                }
+            }
+        }
     }
+}
+
+private fun tabIcon(id: String) = when (id) {
+    "feed" -> Icons.Rounded.Subscriptions
+    "queue" -> Icons.Rounded.QueueMusic
+    else -> Icons.Rounded.VideoLibrary
 }
 
 /** A video you started: how far along it is, how much is left, and a button to call it finished. */
