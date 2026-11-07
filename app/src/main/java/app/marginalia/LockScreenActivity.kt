@@ -44,6 +44,18 @@ class LockScreenActivity : ComponentActivity() {
         }
     }
 
+    // The lock screen always starts locked, so a phone that wakes up in a pocket cannot skip or pause.
+    override fun onStart() {
+        super.onStart()
+        (application as MarginaliaApp).player.setLocked(true)
+    }
+
+    // The screen went off: lock again for the next time it wakes.
+    override fun onStop() {
+        if (getSystemService(KeyguardManager::class.java).isKeyguardLocked) (application as MarginaliaApp).player.setLocked(true)
+        super.onStop()
+    }
+
     /** Asks Android to show the PIN or fingerprint prompt, then leaves. */
     private fun unlock() {
         val km = getSystemService(KeyguardManager::class.java)

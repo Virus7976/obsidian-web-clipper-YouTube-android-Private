@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -87,6 +88,8 @@ import app.marginalia.player.QuickHighlight
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 private fun argb(c: Color, alpha: Float = c.alpha): Int =
     android.graphics.Color.argb((alpha * 255).toInt(), (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt())
@@ -99,11 +102,35 @@ private fun argb(c: Color, alpha: Float = c.alpha): Int =
 @Composable
 fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
     val s by app.settings.state.collectAsState()
-    val ps by app.player.state.collectAsState()
     val locked by app.player.locked.collectAsState()
+    val view = LocalView.current
+    // Only what the locked screen shows. The position changes many times a second, and reading it here
+    // would draw everything again that often, so it is left out.
+    val now by remember {
+        app.player.state.map { Triple(it.videoId, it.title to it.author, it.playing) }.distinctUntilChanged()
+    }.collectAsState(app.player.state.value.let { Triple(it.videoId, it.title to it.author, it.playing) })
+    // Nothing loaded: there is nothing to show.
+    LaunchedEffect(now.first) { if (now.first == null) onClose() }
+    DisposableEffect(s.lockKeepOn) {
+        view.keepScreenOn = s.lockKeepOn
+        onDispose { view.keepScreenOn = false }
+    }
+    if (locked) LockedScreen(now.second.first, now.second.second, now.third) { app.player.setLocked(false) }
+    else OpenLockScreen(app, onUnlock)
+}
+
+/**
+ * The full lock screen: the page you can highlight, and the controls. It locks itself again ten seconds
+ * after the last touch, so a phone put back in a pocket is safe without you doing anything.
+ */
+@Composable
+private fun OpenLockScreen(app: MarginaliaApp, onUnlock: () -> Unit) {
+    val s by app.settings.state.collectAsState()
+    val ps by app.player.state.collectAsState()
     val videos by app.library.videos.collectAsState()
     val ctx = LocalContext.current
-    val view = LocalView.current
+    var pokes by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(pokes) { kotlinx.coroutines.delay(10_000); app.player.setLocked(true) }
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val accent = if (s.lockAccent == "white") Color.White else MaterialTheme.colorScheme.primary
@@ -112,13 +139,6 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
     // The layout can be flipped from the lock screen itself without changing the setting.
     var layout by remember(s.lockStyle) { mutableStateOf(s.lockStyle) }
     val showText = layout != "minimal"
-
-    // Nothing loaded: there is nothing to show.
-    LaunchedEffect(id) { if (id == null) onClose() }
-    DisposableEffect(s.lockKeepOn) {
-        view.keepScreenOn = s.lockKeepOn
-        onDispose { view.keepScreenOn = false }
-    }
 
     val doc by produceState<TranscriptDoc?>(null, id, showText, s.lineLength, s.showTimestamps, video?.chapters) {
         value = if (!showText) null else withContext(Dispatchers.Default) {
@@ -151,7 +171,14 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
     var away by remember { mutableStateOf(false) }
     LaunchedEffect(activeWord, s.lockFollow) { if (s.lockFollow && activeWord >= 0) tview?.follow(activeWord) }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // Every touch, anywhere, starts the ten seconds again. It only watches; the touch still does its job.
+    Box(
+        Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); pokes++ }
+            }
+        },
+    ) {
         // background
         when (s.lockBackground) {
             "art" -> {
@@ -242,7 +269,7 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
                 }
             } else {
                 // The page. This is the same text view as the reader, so you can select and highlight here.
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                     val d = doc
                     if (d != null) {
                         AndroidView(
@@ -350,22 +377,24 @@ fun LockScreen(app: MarginaliaApp, onUnlock: () -> Unit, onClose: () -> Unit) {
                 }
             }
         }
-
-        if (locked) TouchLock(muted) { app.player.setLocked(false) }
     }
 }
 
 /**
- * Covers the whole lock screen and swallows every touch, so a phone in a pocket cannot skip, pause or
- * highlight. Only holding a finger on the pill for a moment gets out.
+ * The locked screen. It is all that is drawn while locked: a clock, what is playing, and the way out. There
+ * is no page, no picture and nothing that changes every moment, so it costs almost nothing to show. Every
+ * touch is swallowed, so a phone in a pocket cannot skip, pause or highlight. A short hold on the pill gets
+ * out: a pocket makes quick taps, but it rarely holds still on one spot.
  */
 @Composable
-private fun TouchLock(muted: Color, onUnlock: () -> Unit) {
+private fun LockedScreen(title: String, author: String, playing: Boolean, onUnlock: () -> Unit) {
     val haptic = LocalHapticFeedback.current
+    val text = Color(0xFFE6E6E6)
+    val muted = text.copy(alpha = 0.55f)
     var pill by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     Box(
-        Modifier.fillMaxSize().background(Color(0xF2000000))
+        Modifier.fillMaxSize().background(Color.Black)
             .onGloballyPositioned { origin = it.positionInRoot() }
             .pointerInput(Unit) {
                 // One handler does it all, so no other layer can steal the touch.
@@ -375,7 +404,7 @@ private fun TouchLock(muted: Color, onUnlock: () -> Unit) {
                     var drain = true
                     if (pill.contains(down.position + origin)) {
                         val timedOut = try {
-                            withTimeout(700) { waitForUpOrCancellation() }
+                            withTimeout(400) { waitForUpOrCancellation() }
                             false
                         } catch (_: PointerEventTimeoutCancellationException) { true }
                         if (timedOut) {
@@ -389,17 +418,44 @@ private fun TouchLock(muted: Color, onUnlock: () -> Unit) {
                         if (e.changes.none { it.pressed }) break
                     }
                 }
-            },
-        contentAlignment = Alignment.Center,
+            }
+            .systemBarsPadding(),
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Rounded.Lock, null, Modifier.size(40.dp), tint = muted)
-            Spacer(Modifier.height(14.dp))
-            Surface(
-                shape = RoundedCornerShape(24.dp), color = Color(0xFF1B1B1B),
-                modifier = Modifier.onGloballyPositioned { pill = it.boundsInRoot() },
-            ) {
-                Text("Hold to unlock", Modifier.padding(horizontal = 24.dp, vertical = 16.dp), color = Color(0xFFE6E6E6), style = MaterialTheme.typography.labelLarge)
+        // The clock changes once a minute, by itself, with no work from the app.
+        Column(Modifier.align(Alignment.TopCenter).padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            AndroidView(factory = { c ->
+                android.widget.TextClock(c).apply {
+                    format12Hour = "h:mm"; format24Hour = "H:mm"; textSize = 72f
+                    typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+                    setTextColor(argb(text))
+                }
+            })
+            AndroidView(factory = { c ->
+                android.widget.TextClock(c).apply {
+                    format12Hour = "EEEE, MMM d"; format24Hour = "EEEE, MMM d"; textSize = 16f
+                    setTextColor(argb(muted))
+                }
+            })
+        }
+        Column(
+            Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, color = text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (playing) author else "Paused  ·  $author", color = muted,
+                style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(28.dp), color = Color(0xFF1B1B1B),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp).onGloballyPositioned { pill = it.boundsInRoot() },
+        ) {
+            Row(Modifier.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Lock, null, Modifier.size(18.dp), tint = muted)
+                Spacer(Modifier.width(10.dp))
+                Text("Hold to unlock", color = text, style = MaterialTheme.typography.labelLarge)
             }
         }
     }
