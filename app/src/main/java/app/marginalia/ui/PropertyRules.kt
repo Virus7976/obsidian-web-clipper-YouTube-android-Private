@@ -114,20 +114,14 @@ private fun ruleLine(p: TemplateProperty, vars: Map<String, String>): String = w
 /** One property in the template, with what fills it. */
 @Composable
 fun PropertyRow(p: TemplateProperty, vars: Map<String, String>, onClick: () -> Unit) {
+    // A flat row, so a template's properties sit together in one card.
     val scheme = MaterialTheme.colorScheme
-    Surface(onClick = onClick, shape = MaterialTheme.shapes.large, color = scheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(PropertyTypes.firstOrNull { it.id == p.type }?.icon ?: Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = scheme.onSurfaceVariant)
-            Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    ruleLine(p, vars), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = if (p.ask) scheme.primary else scheme.onSurfaceVariant,
-                )
-            }
-            Icon(Icons.Rounded.ChevronRight, null, tint = scheme.onSurfaceVariant)
-        }
-    }
+    ListRow(
+        p.name, ruleLine(p, vars),
+        icon = PropertyTypes.firstOrNull { it.id == p.type }?.icon ?: Icons.Rounded.AutoAwesome,
+        subtitleColor = if (p.ask) scheme.primary else androidx.compose.ui.graphics.Color.Unspecified,
+        onClick = onClick,
+    ) { Icon(Icons.Rounded.ChevronRight, null, tint = scheme.onSurfaceVariant) }
 }
 
 @Composable

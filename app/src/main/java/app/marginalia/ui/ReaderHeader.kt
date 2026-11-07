@@ -111,7 +111,7 @@ import kotlinx.coroutines.delay
 
 private val TopRow = 56.dp
 private val SmallRow = 64.dp
-private val Controls = 96.dp
+private val Controls = 80.dp
 private val Speeds = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.75f)
 
 /** True while a source is loading or the player is catching up, and there is no error to show instead. */
@@ -165,6 +165,13 @@ fun ReaderHeader(
     var skips by remember { mutableIntStateOf(0) }
     var skipSign by remember { mutableStateOf(false) }
     LaunchedEffect(skips) { if (skips > 0) { skipSign = true; delay(500); skipSign = false } }
+    // Listening, the bar is one small row. A tap on the title opens the seek bar and skip buttons,
+    // and they close by themselves when you leave them alone.
+    var listenOpen by remember { mutableStateOf(false) }
+    var listenPokes by remember { mutableIntStateOf(0) }
+    LaunchedEffect(collapsed, picture) { if (collapsed || picture) listenOpen = false }
+    LaunchedEffect(listenOpen, listenPokes, menuOpen) { if (listenOpen && !menuOpen) { delay(5000); listenOpen = false } }
+    val controlsOpen = !picture && listenOpen
 
     BoxWithConstraints(Modifier.fillMaxWidth().background(if (full) Color.Black else scheme.background).clipToBounds()) {
         val width = maxWidth
@@ -175,7 +182,7 @@ fun ReaderHeader(
         val videoHeight by animateDpAsState(if (picture) fullHeight else 0.dp, spring(1f, 450f), label = "picture")
         val openTop = 0.dp
         // The 3dp under the picture is the thin progress line, so you can see how much is left with the buttons hidden.
-        val openTarget = if (full) room else if (picture) fullHeight + 3.dp else TopRow + Controls
+        val openTarget = if (full) room else if (picture) fullHeight + 3.dp else if (controlsOpen) TopRow + Controls else TopRow + 3.dp
         val open by animateDpAsState(openTarget, spring(1f, 450f), label = "open")
         val tap = remember { MutableInteractionSource() }
 
@@ -188,18 +195,24 @@ fun ReaderHeader(
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                 Spacer(Modifier.width(lerp(0.dp, 84.dp, t)))
                 Column(
-                    Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp).clickable(tap, null, enabled = collapsed, onClickLabel = "Show the player", onClick = onExpand),
+                    Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp).clickable(
+                        tap, null, enabled = collapsed || !picture,
+                        onClickLabel = if (collapsed) "Show the player" else if (listenOpen) "Hide the controls" else "Show the controls",
+                        onClick = { if (collapsed) onExpand() else listenOpen = !listenOpen },
+                    ),
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(video.meta.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    // Open, the channel sits under the title. Folded, the time does.
-                    if (t > 0f) SmallTime(ps, Modifier.graphicsLayer { alpha = t })
-                    else if (video.meta.author.isNotBlank()) Text(
-                        video.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
-                    )
+                    // With the controls open, the seek bar has the times, so the channel goes here. Otherwise the time does.
+                    if (controlsOpen && t == 0f) {
+                        if (video.meta.author.isNotBlank()) Text(
+                            video.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
+                        )
+                    } else SmallTime(ps, Modifier)
                 }
-                if (collapsed) MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 40.dp)
+                // One play button at a time: with the controls open, the big one below has the job.
+                if (collapsed || !controlsOpen) MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 40.dp)
                 Box {
                     IconButton(onClick = { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, "More") }
                     ReaderMenu(menuOpen, onMenu, menuItems)
@@ -265,13 +278,13 @@ fun ReaderHeader(
                 }
             }
 
-            val ctlAlpha by animateFloatAsState(if (picture) 0f else 1f, tween(220), label = "ctlAlpha")
+            val ctlAlpha by animateFloatAsState(if (controlsOpen) 1f else 0f, tween(220), label = "ctlAlpha")
             if (ctlAlpha > 0f && t < 1f) Column(
                 Modifier.offset(y = TopRow).height(Controls).graphicsLayer { alpha = (ctlAlpha * (1f - t * 2f)).coerceAtLeast(0f) }.padding(horizontal = 12.dp),
-            ) { PlayerControls(ps, host, chapters, onJump) }
+            ) { PlayerControls(ps, host, chapters, onJump, onPoke = { listenPokes++ }) }
         }
         // One bar at a time: while the buttons are on the picture they have the seek bar, so this line waits.
-        if ((picture && !(shown || !playing)) || t > 0f) SmallProgress(ps, chapters, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
+        if ((picture && !(shown || !playing)) || (!picture && !controlsOpen) || t > 0f) SmallProgress(ps, chapters, Modifier.align(Alignment.BottomStart), if (collapsed) 2.dp else 3.dp)
     }
 }
 
@@ -366,50 +379,42 @@ private fun ReaderMenu(open: Boolean, onMenu: (Boolean) -> Unit, items: @Composa
     )
 }
 
-/** A soft round button. The two ends of the listening row are both one, so the row reads as one set. */
-@Composable
-private fun SoftButton(description: String, onClick: () -> Unit, enabled: Boolean = true, content: @Composable BoxScope.() -> Unit) {
-    Box(
-        Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(enabled = enabled, onClickLabel = description, onClick = onClick)
-            .semantics { this.contentDescription = description },
-        contentAlignment = Alignment.Center, content = content,
-    )
-}
-
 /**
- * Listening, under the title row: the seek bar across the full width with its times under it, then one row
- * of buttons. Video and speed sit at the two ends in the same soft circle, and the Video button is always
- * there, so it is easy to find.
+ * Listening, opened by a tap on the title: the seek bar, then one row. The times sit at the two ends of the
+ * row, so they line up with the ends of the bar above. Skip and play are in the middle. Speed rides with
+ * the time left. Video is in the ⋮ menu, not here.
  */
 @Composable
-private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onJump: (Double) -> Unit) {
+private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onJump: (Double) -> Unit, onPoke: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     var showLeft by rememberSaveable { mutableStateOf(false) }
     SlimSeekBar(
-        ps.value.positionSec, ps.value.durationSec, onSeek = onJump,
-        modifier = Modifier.padding(horizontal = 4.dp), loading = ps.value.waiting, chapters = chapters,
+        ps.value.positionSec, ps.value.durationSec, onSeek = { onJump(it); onPoke() },
+        modifier = Modifier.padding(horizontal = 4.dp), loading = ps.value.waiting, chapters = chapters, onTouch = onPoke,
     )
-    Row(Modifier.fillMaxWidth().height(16.dp).offset(y = (-6).dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(YouTube.formatTime(ps.value.positionSec), style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
-        Spacer(Modifier.weight(1f))
-        // Tap the time to see what is left.
+    Box(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp)) {
         Text(
-            if (showLeft) "-" + YouTube.formatTime((ps.value.durationSec - ps.value.positionSec).coerceAtLeast(0.0)) else YouTube.formatTime(ps.value.durationSec),
-            Modifier.clickable(onClickLabel = "Switch between length and time left") { showLeft = !showLeft },
-            style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
+            YouTube.formatTime(ps.value.positionSec), Modifier.align(Alignment.CenterStart),
+            style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
         )
-    }
-    Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        val none = ps.value.noPicture
-        SoftButton(if (none) "This video has sound only" else "Watch the video", { host.setVideo(true) }, enabled = !none && ps.value.error == null) {
-            Icon(if (none) Icons.Rounded.VideocamOff else Icons.Rounded.Videocam, null, Modifier.size(22.dp), tint = if (none) scheme.outline else scheme.onSurface)
+        Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { host.skip(-10.0); onPoke() }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds") }
+            MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle(); onPoke() }, size = 48.dp)
+            IconButton(onClick = { host.skip(10.0); onPoke() }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
         }
-        IconButton(onClick = { host.skip(-10.0) }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds") }
-        MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 48.dp)
-        IconButton(onClick = { host.skip(10.0) }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
-        SoftButton("Speed", { host.setSpeed(nextSpeed(ps.value.speed)) }) {
-            Text(speedLabel(ps.value.speed), style = MaterialTheme.typography.labelLarge, color = scheme.onSurface)
+        Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                speedLabel(ps.value.speed),
+                Modifier.clip(CircleShape).clickable(onClickLabel = "Speed") { host.setSpeed(nextSpeed(ps.value.speed)); onPoke() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelLarge, color = scheme.primary,
+            )
+            // Tap the time to see what is left.
+            Text(
+                if (showLeft) "-" + YouTube.formatTime((ps.value.durationSec - ps.value.positionSec).coerceAtLeast(0.0)) else YouTube.formatTime(ps.value.durationSec),
+                Modifier.clickable(onClickLabel = "Switch between length and time left") { showLeft = !showLeft; onPoke() },
+                style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
+            )
         }
     }
 }

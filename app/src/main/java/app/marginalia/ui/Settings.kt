@@ -48,6 +48,13 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -396,222 +403,81 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
             if (show("updates", SettingsKeys.updates)) item { UpdateGroup(s, ::set) }
 
             // ---------- obsidian ----------
-            if (show("obsidian", SettingsKeys.obsidian)) item { Group("Obsidian") {
-                Label("When I tap Clip")
-                Choices(
-                    listOf("addToObsidian" to "Open Obsidian", "saveFile" to "Save file", "copyToClipboard" to "Copy", "share" to "Share"),
-                    s.saveBehavior,
-                ) { v -> set { it.copy(saveBehavior = v) } }
-                SwitchRow(
-                    "Save by itself when a video ends",
-                    "Only if it has highlights. It adds to your note when there is one, and never opens Obsidian.",
-                    s.autoClip,
-                ) { v -> set { it.copy(autoClip = v) } }
+            if (show("obsidian", SettingsKeys.obsidian)) item { Column {
+                val scheme = MaterialTheme.colorScheme
+                val menuShape = RoundedCornerShape(20.dp)
 
-                Label("Vaults")
-                val indexes by app.vaults.indexes.collectAsState()
-                val busy by app.vaults.busy.collectAsState()
-                val problems by app.vaults.errors.collectAsState()
-                s.vaults.forEach { v ->
-                    val linked = s.vaultFolders.containsKey(v)
-                    // a name with no folder of its own uses the only folder there is
-                    val key = if (linked) v else s.linkedVault(v)
-                    val idx = key?.let { indexes[it] }
-                    val problem = key?.let { problems[it] }
-                    val reading = key?.let { busy[it] }
-                    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                FilterChip(selected = v == s.vault, onClick = { set { it.copy(vault = v) } }, label = { Text(v) })
-                                Spacer(Modifier.weight(1f))
-                                IconButton(onClick = {
-                                    app.vaults.forget(v)
-                                    set { st -> st.copy(
-                                        vaults = st.vaults - v,
-                                        vaultFolders = st.vaultFolders - v,
-                                        vault = if (st.vault == v) st.vaults.firstOrNull { it != v }.orEmpty() else st.vault,
-                                    ) }
-                                }) { Icon(Icons.Rounded.Close, "Remove vault") }
-                            }
-                            Text(
-                                when {
-                                    reading != null -> "Reading your notes… $reading so far"
-                                    problem != null -> problem
-                                    idx != null -> "${idx.notes.size} notes, ${idx.tags.size} tags, ${idx.folders.size} folders"
-                                    key != null -> "Not read yet. Tap Reindex."
-                                    else -> "No folder yet. Choose the folder that holds this vault."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (problem != null && reading == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                // ----- Templates. Used most, so they come first. -----
+                var templatesMore by remember { mutableStateOf(false) }
+                var addTemplate by remember { mutableStateOf(false) }
+                fun fromVault() {
+                    val vault = s.linkedVault(s.vault) ?: s.vaultFolders.keys.firstOrNull()
+                    if (vault == null) templateFile.launch(arrayOf("text/markdown", "text/plain", "*/*"))
+                    else scope.launch {
+                        val folder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            s.vaultFolders[vault]?.let { VaultScanner.config(ctx, android.net.Uri.parse(it), "templates.json") }
+                        }?.let(VaultTemplate::folder).orEmpty()
+                        pickTemplate = vault to folder
+                    }
+                }
+                fun blankTemplate() {
+                    val id = UUID.randomUUID().toString().take(12)
+                    set { it.copy(templates = it.templates + ClipTemplate(id = id, name = "New template", properties = listOf(
+                        TemplateProperty(UUID.randomUUID().toString(), "title", "{{title}}"),
+                        TemplateProperty(UUID.randomUUID().toString(), "source", "{{url}}"),
+                    )), selectedTemplateId = it.selectedTemplateId.ifBlank { id }) }
+                    onEditTemplate(id)
+                }
+                Section("Templates", action = {
+                    Box {
+                        IconButton(onClick = { templatesMore = true }) { Icon(Icons.Rounded.MoreVert, "More template choices", tint = scheme.onSurfaceVariant) }
+                        androidx.compose.material3.DropdownMenu(templatesMore, { templatesMore = false }, shape = menuShape, containerColor = scheme.surfaceContainerHigh) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Import a clipper file") }, leadingIcon = { Icon(Icons.Rounded.FileDownload, null) },
+                                onClick = { templatesMore = false; importer.launch(arrayOf("application/json", "text/plain", "*/*")) },
                             )
-                            if (key != null) {
-                                FilledTonalButton(onClick = { app.vaults.refresh(key, force = true) }, shapes = ButtonDefaults.shapes()) {
-                                    Text(if (reading != null) "Start again" else "Reindex")
-                                }
-                            } else {
-                                FilledTonalButton(onClick = { pickFor = v; folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
-                                    Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Choose folder")
-                                }
-                            }
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Export all") }, leadingIcon = { Icon(Icons.Rounded.FileUpload, null) },
+                                onClick = { templatesMore = false; exporter.launch("obsidian-web-clipper-settings.json") },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Reset to the bundled set") }, leadingIcon = { Icon(Icons.Rounded.Restore, null) },
+                                onClick = {
+                                    templatesMore = false
+                                    runCatching {
+                                        val text = ctx.assets.open("default_clipper_settings.json").bufferedReader().use { it.readText() }
+                                        set { ClipperImport.apply(text, it.copy(templates = emptyList())) }
+                                    }.onSuccess { say("Templates reset to the bundled ones.") }
+                                },
+                            )
+                        }
+                    }
+                }) {
+                    s.templates.forEach { t ->
+                        ListRow(
+                            t.name,
+                            listOf(t.path.ifBlank { "Vault root" }, "${t.properties.size} properties").joinToString("  ·  "),
+                            icon = Icons.Rounded.Description,
+                            onClick = { onEditTemplate(t.id) },
+                        ) {
+                            if (t.id == s.selectedTemplateId) Text("Default", Modifier.padding(end = 4.dp), style = MaterialTheme.typography.labelMedium, color = scheme.primary)
+                            Icon(Icons.Rounded.ChevronRight, null, tint = scheme.onSurfaceVariant)
+                        }
+                    }
+                    Box {
+                        AddRow("Add a template") { addTemplate = true }
+                        androidx.compose.material3.DropdownMenu(addTemplate, { addTemplate = false }, shape = menuShape, containerColor = scheme.surfaceContainerHigh) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("From my vault") }, leadingIcon = { Icon(Icons.Rounded.Description, null) },
+                                onClick = { addTemplate = false; fromVault() },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Blank") }, leadingIcon = { Icon(Icons.Rounded.Add, null) },
+                                onClick = { addTemplate = false; blankTemplate() },
+                            )
                         }
                     }
                 }
-                Text(
-                    "Pick the folder that holds a vault. ObsiTube reads your notes, folders and tags so you can pick them when you save a clip. It only reads. It writes only when you save a clip.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FilledTonalButton(onClick = { pickFor = null; folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
-                    Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Add a vault folder")
-                }
-                var newVault by remember { mutableStateOf("") }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = newVault, onValueChange = { newVault = it }, singleLine = true,
-                        label = { Text("Or add a name only") }, modifier = Modifier.weight(1f),
-                    )
-                    FilledTonalButton(onClick = {
-                        val n = newVault.trim()
-                        if (n.isNotEmpty()) {
-                            set { it.copy(vaults = (it.vaults + n).distinct(), vault = it.vault.ifBlank { n }) }
-                            newVault = ""
-                        }
-                    }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add vault") }
-                }
-
-                SwitchRow(
-                    "Fill the sheet from my note", "When a video is already in your vault, the save sheet shows what that note has, so you can add to it.",
-                    s.prefillExisting,
-                ) { v -> set { it.copy(prefillExisting = v) } }
-                SwitchRow(
-                    "Name notes by date, subject and description", "Like 2026-10-28_clipping_how-to-slow-time_v1. Off keeps the template's name.",
-                    s.nameSchema,
-                ) { v -> set { it.copy(nameSchema = v) } }
-                if (s.nameSchema) OutlinedTextField(
-                    value = s.nameSubject, onValueChange = { v -> set { it.copy(nameSubject = v) } },
-                    label = { Text("Default subject") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                )
-                Label("Added to every clip")
-                Text(
-                    "These go on every clip, whatever the template says. You can still remove one while you save.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    s.autoTags.forEach { t ->
-                        androidx.compose.material3.InputChip(
-                            selected = true, onClick = { set { it.copy(autoTags = it.autoTags - t) } },
-                            label = { Text("#$t") },
-                            trailingIcon = { Icon(Icons.Rounded.Close, "Remove $t", Modifier.size(16.dp)) },
-                        )
-                    }
-                }
-                var newTag by remember { mutableStateOf("") }
-                fun addTag() {
-                    val t = newTag.trim().removePrefix("#").replace(' ', '-')
-                    if (t.isNotEmpty()) set { it.copy(autoTags = (it.autoTags + t).distinct()) }
-                    newTag = ""
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = newTag, onValueChange = { newTag = it }, singleLine = true,
-                        label = { Text("Add a tag") }, modifier = Modifier.weight(1f),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { addTag() }),
-                    )
-                    FilledTonalButton(onClick = ::addTag, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add tag") }
-                }
-                s.autoProps.forEach { p ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(p.name, style = MaterialTheme.typography.titleSmall)
-                            Text(p.value.ifBlank { "(empty)" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { set { it.copy(autoProps = it.autoProps - p) } }) { Icon(Icons.Rounded.Delete, "Remove ${p.name}") }
-                    }
-                }
-                var propName by remember { mutableStateOf("") }
-                var propValue by remember { mutableStateOf("") }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = propName, onValueChange = { propName = it }, singleLine = true,
-                        label = { Text("Property") }, modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = propValue, onValueChange = { propValue = it }, singleLine = true,
-                        label = { Text("Value") }, modifier = Modifier.weight(1f),
-                    )
-                    FilledTonalButton(onClick = {
-                        val n = propName.trim()
-                        if (n.isNotEmpty() && !n.equals("tags", true)) {
-                            set { it.copy(autoProps = it.autoProps.filterNot { x -> x.name.equals(n, true) } + TemplateProperty("auto:$n", n, propValue.trim(), if (propValue.contains("{{date")) "date" else "")) }
-                            propName = ""; propValue = ""
-                        }
-                    }, shapes = ButtonDefaults.shapes()) { Icon(Icons.Rounded.Add, "Add property") }
-                }
-                androidx.compose.material3.TextButton(onClick = {
-                    propName = if (propName.isBlank()) "date added" else propName
-                    propValue = "{{date|date:\"YYYY-MM-DD\"}}"
-                }) { Text("Fill in today's date") }
-
-                Label("Templates")
-                s.templates.forEach { t ->
-                    Surface(
-                        onClick = { onEditTemplate(t.id) },
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(t.name, style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    "${t.path.ifBlank { "Vault root" }}  ·  ${t.properties.size} properties",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (t.id == s.selectedTemplateId) Icon(Icons.Rounded.Check, "Default", tint = MaterialTheme.colorScheme.primary)
-                            Icon(Icons.Rounded.ChevronRight, null)
-                        }
-                    }
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = {
-                        val id = UUID.randomUUID().toString().take(12)
-                        set { it.copy(templates = it.templates + ClipTemplate(id = id, name = "New template", properties = listOf(
-                            TemplateProperty(UUID.randomUUID().toString(), "title", "{{title}}"),
-                            TemplateProperty(UUID.randomUUID().toString(), "source", "{{url}}"),
-                        )), selectedTemplateId = it.selectedTemplateId.ifBlank { id }) }
-                        onEditTemplate(id)
-                    }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("New template")
-                    }
-                    FilledTonalButton(onClick = {
-                        val vault = s.linkedVault(s.vault) ?: s.vaultFolders.keys.firstOrNull()
-                        if (vault == null) templateFile.launch(arrayOf("text/markdown", "text/plain", "*/*"))
-                        else scope.launch {
-                            val folder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                s.vaultFolders[vault]?.let { VaultScanner.config(ctx, android.net.Uri.parse(it), "templates.json") }
-                            }?.let(VaultTemplate::folder).orEmpty()
-                            pickTemplate = vault to folder
-                        }
-                    }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.Description, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("From my vault")
-                    }
-                    FilledTonalButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Import")
-                    }
-                    FilledTonalButton(onClick = { exporter.launch("obsidian-web-clipper-settings.json") }, shapes = ButtonDefaults.shapes()) {
-                        Icon(Icons.Rounded.FileUpload, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Export")
-                    }
-                }
-                TextButton(onClick = {
-                    runCatching {
-                        val text = ctx.assets.open("default_clipper_settings.json").bufferedReader().use { it.readText() }
-                        set { ClipperImport.apply(text, it.copy(templates = emptyList())) }
-                    }.onSuccess { say("Templates reset to the bundled ones.") }
-                }) { Text("Reset templates to the bundled set") }
                 pickTemplate?.let { (vault, folder) ->
                     OmniSheet(
                         vault = vault, title = "Choose a template", kinds = setOf(OmniKind.Note), within = folder,
@@ -622,6 +488,170 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         onDismiss = { pickTemplate = null },
                     )
                 }
+
+                // ----- Vaults -----
+                val indexes by app.vaults.indexes.collectAsState()
+                val busy by app.vaults.busy.collectAsState()
+                val problems by app.vaults.errors.collectAsState()
+                var vaultMenu by remember { mutableStateOf<String?>(null) }
+                var addVault by remember { mutableStateOf(false) }
+                var nameOnly by remember { mutableStateOf(false) }
+                Section("Vaults", footer = "ObsiTube reads your notes, folders and tags so you can pick them when you save. It writes only when you save a clip.") {
+                    s.vaults.forEach { v ->
+                        val linked = s.vaultFolders.containsKey(v)
+                        // a name with no folder of its own uses the only folder there is
+                        val key = if (linked) v else s.linkedVault(v)
+                        val idx = key?.let { indexes[it] }
+                        val problem = key?.let { problems[it] }
+                        val reading = key?.let { busy[it] }
+                        val chosen = v == s.vault
+                        ListRow(
+                            v,
+                            when {
+                                reading != null -> "Reading your notes… $reading so far"
+                                problem != null -> problem
+                                idx != null -> "${idx.notes.size} notes, ${idx.tags.size} tags, ${idx.folders.size} folders"
+                                key != null -> "Not read yet"
+                                else -> "No folder yet"
+                            },
+                            icon = if (chosen) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                            titleColor = if (chosen) scheme.primary else Color.Unspecified,
+                            subtitleColor = if (problem != null && reading == null) scheme.error else Color.Unspecified,
+                            onClick = { set { it.copy(vault = v) } },
+                        ) {
+                            Box {
+                                IconButton(onClick = { vaultMenu = v }) { Icon(Icons.Rounded.MoreVert, "Choices for $v", tint = scheme.onSurfaceVariant) }
+                                androidx.compose.material3.DropdownMenu(vaultMenu == v, { vaultMenu = null }, shape = menuShape, containerColor = scheme.surfaceContainerHigh) {
+                                    if (key != null) androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(if (reading != null) "Start again" else "Reindex") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
+                                        onClick = { vaultMenu = null; app.vaults.refresh(key, force = true) },
+                                    )
+                                    if (!linked) androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text("Choose its folder") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) },
+                                        onClick = { vaultMenu = null; pickFor = v; folderPicker.launch(null) },
+                                    )
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text("Remove") }, leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                                        onClick = {
+                                            vaultMenu = null
+                                            app.vaults.forget(v)
+                                            set { st -> st.copy(
+                                                vaults = st.vaults - v,
+                                                vaultFolders = st.vaultFolders - v,
+                                                vault = if (st.vault == v) st.vaults.firstOrNull { it != v }.orEmpty() else st.vault,
+                                            ) }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Box {
+                        AddRow("Add a vault") { addVault = true }
+                        androidx.compose.material3.DropdownMenu(addVault, { addVault = false }, shape = menuShape, containerColor = scheme.surfaceContainerHigh) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Choose its folder") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) },
+                                onClick = { addVault = false; pickFor = null; folderPicker.launch(null) },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Name only") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                onClick = { addVault = false; nameOnly = true },
+                            )
+                        }
+                    }
+                }
+                if (nameOnly) TextDialog(
+                    "Add a vault by name", "",
+                    onDone = { raw ->
+                        val n = raw.trim()
+                        if (n.isNotEmpty()) set { it.copy(vaults = (it.vaults + n).distinct(), vault = it.vault.ifBlank { n }) }
+                    },
+                    onDismiss = { nameOnly = false },
+                    help = "Type the name Obsidian shows for it.",
+                )
+
+                // ----- Clip -----
+                var clipMenu by remember { mutableStateOf(false) }
+                val clipChoices = listOf("addToObsidian" to "Open Obsidian", "saveFile" to "Save a file", "copyToClipboard" to "Copy it", "share" to "Share it")
+                Section("Saving a clip") {
+                    Box {
+                        ListRow(
+                            "When I tap Clip", clipChoices.firstOrNull { it.first == s.saveBehavior }?.second ?: "Open Obsidian",
+                            onClick = { clipMenu = true },
+                        )
+                        androidx.compose.material3.DropdownMenu(clipMenu, { clipMenu = false }, shape = menuShape, containerColor = scheme.surfaceContainerHigh) {
+                            clipChoices.forEach { (k, label) ->
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text(label) },
+                                    trailingIcon = { if (s.saveBehavior == k) Icon(Icons.Rounded.Check, "Chosen", tint = scheme.primary) },
+                                    onClick = { clipMenu = false; set { it.copy(saveBehavior = k) } },
+                                )
+                            }
+                        }
+                    }
+                    ListRow(
+                        "Save by itself when a video ends", "Only if it has highlights. It never opens Obsidian.",
+                        onClick = { set { it.copy(autoClip = !it.autoClip) } },
+                    ) { Switch(checked = s.autoClip, onCheckedChange = { v -> set { it.copy(autoClip = v) } }) }
+                    ListRow(
+                        "Fill the sheet from my note", "When the video is already in your vault, start from what that note has.",
+                        onClick = { set { it.copy(prefillExisting = !it.prefillExisting) } },
+                    ) { Switch(checked = s.prefillExisting, onCheckedChange = { v -> set { it.copy(prefillExisting = v) } }) }
+                }
+
+                // ----- Every clip -----
+                var addTag by remember { mutableStateOf(false) }
+                var addProp by remember { mutableStateOf(false) }
+                Section("Added to every clip", footer = "These go on every clip, whatever the template says. You can still remove one while you save.") {
+                    if (s.autoTags.isNotEmpty()) FlowRow(
+                        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        s.autoTags.forEach { t ->
+                            androidx.compose.material3.InputChip(
+                                selected = false, onClick = { set { it.copy(autoTags = it.autoTags - t) } },
+                                label = { Text("#$t") },
+                                trailingIcon = { Icon(Icons.Rounded.Close, "Remove $t", Modifier.size(16.dp)) },
+                            )
+                        }
+                    }
+                    s.autoProps.forEach { p ->
+                        ListRow(p.name, p.value.ifBlank { "(empty)" }, mono = true) {
+                            IconButton(onClick = { set { it.copy(autoProps = it.autoProps - p) } }) {
+                                Icon(Icons.Rounded.Close, "Remove ${p.name}", tint = scheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    AddRow("Add a tag") { addTag = true }
+                    AddRow("Add a property") { addProp = true }
+                }
+                if (addTag) TextDialog(
+                    "Add a tag", "",
+                    onDone = { raw ->
+                        val t = raw.trim().removePrefix("#").replace(' ', '-')
+                        if (t.isNotEmpty()) set { it.copy(autoTags = (it.autoTags + t).distinct()) }
+                    },
+                    onDismiss = { addTag = false },
+                )
+                if (addProp) PropertyDialog(
+                    onDone = { n, value ->
+                        if (n.isNotEmpty() && !n.equals("tags", true)) set {
+                            it.copy(autoProps = it.autoProps.filterNot { x -> x.name.equals(n, true) } + TemplateProperty("auto:$n", n, value, if (value.contains("{{date")) "date" else ""))
+                        }
+                    },
+                    onDismiss = { addProp = false },
+                )
+
+                // ----- Note names -----
+                var editSubject by remember { mutableStateOf(false) }
+                Section("Note names") {
+                    ListRow(
+                        "Name by date, subject and description", "Like 2026-10-28_clipping_how-to-slow-time_v1",
+                        onClick = { set { it.copy(nameSchema = !it.nameSchema) } },
+                    ) { Switch(checked = s.nameSchema, onCheckedChange = { v -> set { it.copy(nameSchema = v) } }) }
+                    if (s.nameSchema) ListRow("Default subject", s.nameSubject.ifBlank { "None" }, onClick = { editSubject = true })
+                }
+                if (editSubject) TextDialog("Default subject", s.nameSubject, { v -> set { it.copy(nameSubject = v.trim()) } }, { editSubject = false })
             } }
 
             // ---------- review ----------
@@ -1054,4 +1084,30 @@ private fun PaletteCard(p: Palette, selected: Boolean, onClick: () -> Unit) {
         Text(p.label, style = MaterialTheme.typography.titleSmall, color = p.textDark)
         Text(p.blurb, style = MaterialTheme.typography.bodySmall, color = p.textDark.copy(alpha = 0.7f), maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
+}
+
+/** Adds one property to every clip: a name and what goes in it. */
+@Composable
+private fun PropertyDialog(onDone: (String, String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a property") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true, shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(
+                    value, { value = it }, Modifier.fillMaxWidth(), label = { Text("Value") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                )
+                androidx.compose.material3.AssistChip(
+                    onClick = { if (name.isBlank()) name = "date added"; value = "{{date|date:\"YYYY-MM-DD\"}}" },
+                    label = { Text("Today's date") },
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onDone(name.trim(), value.trim()); onDismiss() }, enabled = name.isNotBlank()) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
