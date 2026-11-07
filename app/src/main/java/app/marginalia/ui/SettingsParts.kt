@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
@@ -120,14 +121,18 @@ internal fun TextDialog(
     mono: Boolean = false,
     lines: Int = 1,
 ) {
-    var v by remember { mutableStateOf(initial) }
+    // The cursor starts at the end, and the keyboard comes up by itself: you opened this to type.
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initial, androidx.compose.ui.text.TextRange(initial.length))) }
+    val v = field.text
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
                 OutlinedTextField(
-                    v, { v = it }, Modifier.fillMaxWidth(), singleLine = lines == 1, minLines = lines,
+                    field, { field = it }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = lines == 1, minLines = lines,
                     shape = RoundedCornerShape(16.dp),
                     textStyle = if (mono) MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyLarge,
                 )

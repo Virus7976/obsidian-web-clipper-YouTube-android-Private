@@ -99,6 +99,7 @@ fun OmniSheet(
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         app.vaults.refresh(vault)
+        sheet.awaitOpen()
         runCatching { focus.requestFocus() }
     }
 

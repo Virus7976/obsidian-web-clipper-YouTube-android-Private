@@ -79,6 +79,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -1091,12 +1092,14 @@ private fun PaletteCard(p: Palette, selected: Boolean, onClick: () -> Unit) {
 private fun PropertyDialog(onDone: (String, String) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add a property") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true, shape = RoundedCornerShape(16.dp))
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth().focusRequester(focus), label = { Text("Name") }, singleLine = true, shape = RoundedCornerShape(16.dp))
                 OutlinedTextField(
                     value, { value = it }, Modifier.fillMaxWidth(), label = { Text("Value") }, singleLine = true, shape = RoundedCornerShape(16.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),

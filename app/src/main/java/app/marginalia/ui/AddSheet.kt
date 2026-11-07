@@ -84,6 +84,7 @@ fun AddSheet(initial: String?, onDismiss: () -> Unit, onPlaylist: (String) -> Un
     var plListId by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<ChannelSource.Hit>?>(null) }
     val focus = remember { FocusRequester() }
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     fun go(raw: String) {
         val text = raw.trim()
@@ -130,10 +131,10 @@ fun AddSheet(initial: String?, onDismiss: () -> Unit, onPlaylist: (String) -> Un
 
     LaunchedEffect(Unit) {
         if (!initial.isNullOrBlank()) go(initial)
-        else { delay(250); runCatching { focus.requestFocus() } }
+        else { sheet.awaitOpen(); runCatching { focus.requestFocus() } }
     }
 
-    SmoothSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(
             Modifier.imePadding().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

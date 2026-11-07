@@ -84,7 +84,8 @@ fun LibrarySearchSheet(onDismiss: () -> Unit, onOpenPlaylist: (String) -> Unit) 
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf<HitKind?>(null) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    LaunchedEffect(Unit) { sheet.awaitOpen(); runCatching { focus.requestFocus() } }
 
     val all by produceState(emptyList<Hit>(), query, videos, playlists, channels) {
         delay(30)
@@ -110,7 +111,7 @@ fun LibrarySearchSheet(onDismiss: () -> Unit, onOpenPlaylist: (String) -> Unit) 
         onDismiss()
     }
 
-    SmoothSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    SmoothSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it; filter = null },

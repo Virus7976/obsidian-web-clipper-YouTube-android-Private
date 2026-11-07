@@ -1,5 +1,6 @@
 package app.marginalia.ui
 
+import kotlinx.coroutines.flow.first
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -111,6 +112,16 @@ fun SmoothSheet(
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = sheetState) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollFactory provides null) { content() }
     }
+}
+
+/**
+ * Waits until a sheet has finished sliding open. Ask for the keyboard only after this: while the sheet is
+ * still sliding it cannot take in the height the keyboard adds, so it lands in the old spot and then jumps.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+suspend fun androidx.compose.material3.SheetState.awaitOpen() {
+    androidx.compose.runtime.snapshotFlow { currentValue != androidx.compose.material3.SheetValue.Hidden && !isAnimationRunning }
+        .first { it }
 }
 
 /** The highlight colours as tappable dots. The picked one is larger and ringed. */
