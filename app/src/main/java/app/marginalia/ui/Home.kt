@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -203,7 +204,7 @@ fun HomeScreen(
             state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                bottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + if (visibleTabs.size > 1) 196.dp else 120.dp,
+                bottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + if (visibleTabs.size > 1) 160.dp else 100.dp,
             ),
         ) {
             // The page's name, large, like a title in Apple's apps. The tabs that change it are at the bottom.
@@ -215,9 +216,12 @@ fun HomeScreen(
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
                         maxLines = 1,
                     )
-                    IconButton(onClick = { addInitial = null; addOpen = true }) { Icon(Icons.Rounded.Add, "Add a video") }
-                    IconButton(onClick = { searchOpen = true }) { Icon(Icons.Rounded.Search, "Search everything") }
-                    IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
+                    // Small round buttons, like Apple's. Search sits by the tabs when there are tabs.
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(end = 12.dp)) {
+                        RoundButton(Icons.Rounded.Add, "Add a video") { addInitial = null; addOpen = true }
+                        if (visibleTabs.size <= 1) RoundButton(Icons.Rounded.Search, "Search everything") { searchOpen = true }
+                        RoundButton(Icons.Rounded.Settings, "Settings", onSettings)
+                    }
                 }
             }
 
@@ -405,18 +409,28 @@ fun HomeScreen(
         val tabbed = visibleTabs.size > 1
         Column(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars).padding(bottom = 8.dp)) {
             NowPlayingBar(Modifier, onOpen)
-            if (tabbed) BottomTabs(
-                visibleTabs, tab.takeIf { it in visibleTabs } ?: visibleTabs.first(), queue.size,
-            ) { id ->
-                if (tab != id) tab = id
-                else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
-                else scope.launch { listState.animateScrollToItem(0) }
+            if (tabbed) Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) {
+                    BottomTabs(visibleTabs, tab.takeIf { it in visibleTabs } ?: visibleTabs.first(), queue.size) { id ->
+                        if (tab != id) tab = id
+                        else if (openPlaylist != null || page != null) { openPlaylist = null; page = null }
+                        else scope.launch { listState.animateScrollToItem(0) }
+                    }
+                }
+                // Search is its own circle beside the tabs, as in Apple Music.
+                Surface(
+                    onClick = { searchOpen = true }, modifier = Modifier.size(60.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp,
+                ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Search, "Search everything", Modifier.size(26.dp)) } }
             }
         }
         androidx.compose.material3.SnackbarHost(
             snackbar,
             Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
-                .padding(bottom = (if (nowId != null) 84.dp else 8.dp) + (if (tabbed) 76.dp else 4.dp)),
+                .padding(bottom = (if (nowId != null) 64.dp else 8.dp) + (if (tabbed) 72.dp else 4.dp)),
         )
     }
 }
@@ -433,43 +447,40 @@ private fun NowPlayingBar(modifier: Modifier, onOpen: (String) -> Unit) {
         enter = expandVertically(spring(0.6f, 380f)) + fadeIn(),
         exit = shrinkVertically() + fadeOut(),
     ) {
-        // Same family as the cards, so it reads as part of the app. The accent stays on the one button that matters.
+        // A slim capsule resting on the tabs, like Apple Music's: picture, title, play, close.
         Surface(
             onClick = { nowId?.let(onOpen) },
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = 8.dp,
         ) {
-            val frac = if (player.durationSec > 0) (player.positionSec / player.durationSec).toFloat().coerceIn(0f, 1f) else 0f
-            val track = MaterialTheme.colorScheme.outlineVariant
-            val fill = MaterialTheme.colorScheme.primary
-            Row(
-                Modifier.drawBehind {
-                    // A thin line along the bottom edge shows how far along the video is.
-                    val h = 3.dp.toPx()
-                    drawRect(track.copy(alpha = 0.5f), Offset(0f, size.height - h), Size(size.width, h))
-                    drawRect(fill, Offset(0f, size.height - h), Size(size.width * frac, h))
-                }.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 // A video is a wide picture. A circle would cut most of it away.
                 AsyncImage(
                     model = nowId?.let { "https://i.ytimg.com/vi/$it/mqdefault.jpg" },
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.width(72.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(12.dp)),
+                    modifier = Modifier.height(40.dp).aspectRatio(16 / 9f).clip(RoundedCornerShape(20.dp)),
                 )
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(player.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                    Text(player.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(player.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                    Text(player.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                MorphingPlayButton(playing = player.playing, onClick = { app.player.toggle() }, size = 44.dp)
+                IconButton(onClick = { app.player.toggle() }) {
+                    Icon(if (player.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (player.playing) "Pause" else "Play", Modifier.size(28.dp))
+                }
                 IconButton(onClick = { app.player.stop() }) { Icon(Icons.Rounded.Close, "Stop", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
+    }
+}
+
+/** A small round button at the top of a page. */
+@Composable
+private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    Surface(onClick = onClick, modifier = Modifier.size(40.dp), shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Box(contentAlignment = Alignment.Center) { Icon(icon, description, Modifier.size(22.dp)) }
     }
 }
 
@@ -659,8 +670,8 @@ private fun BottomTabs(ids: List<String>, selected: String, queueCount: Int, onS
     val x by androidx.compose.animation.core.animateFloatAsState(x0, androidx.compose.animation.core.spring(0.75f, 450f), label = "tabX")
     val w by androidx.compose.animation.core.animateFloatAsState(w0, androidx.compose.animation.core.spring(0.75f, 450f), label = "tabW")
     Surface(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().height(64.dp),
-        shape = RoundedCornerShape(32.dp),
+        modifier = Modifier.fillMaxWidth().height(60.dp),
+        shape = RoundedCornerShape(30.dp),
         color = scheme.surfaceContainerHigh,
         shadowElevation = 8.dp,
     ) {
@@ -668,7 +679,7 @@ private fun BottomTabs(ids: List<String>, selected: String, queueCount: Int, onS
             if (w > 0f) Box(
                 Modifier.offset { androidx.compose.ui.unit.IntOffset(x.toInt(), 0) }
                     .width(with(density) { w.toDp() }).fillMaxHeight()
-                    .clip(RoundedCornerShape(27.dp)).background(scheme.surfaceContainerHighest),
+                    .clip(RoundedCornerShape(25.dp)).background(scheme.surfaceContainerHighest),
             )
             Row(Modifier.fillMaxSize()) {
                 ids.forEachIndexed { i, id ->
@@ -678,7 +689,7 @@ private fun BottomTabs(ids: List<String>, selected: String, queueCount: Int, onS
                     Column(
                         Modifier.weight(1f).fillMaxHeight()
                             .onGloballyPositioned { c -> bounds[i] = c.positionInParent().x to c.size.width.toFloat() }
-                            .clip(RoundedCornerShape(27.dp))
+                            .clip(RoundedCornerShape(25.dp))
                             .clickable(role = androidx.compose.ui.semantics.Role.Tab, onClickLabel = label) { onSelect(id) },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
