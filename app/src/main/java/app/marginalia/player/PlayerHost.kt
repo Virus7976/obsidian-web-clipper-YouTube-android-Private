@@ -48,6 +48,8 @@ data class PlayerState(
     val error: String? = null,
     val videoOn: Boolean = false,
     val canWatch: Boolean = false,
+    /** Every source was asked for a picture and none had one. Only the sound can play. */
+    val noPicture: Boolean = false,
     /** Which fallback tier is playing right now. */
     val via: String = "",
 )
@@ -296,14 +298,39 @@ class PlayerHost(
     fun setVideo(on: Boolean) {
         val s = current ?: return
         if (on && s.videoUrl == null) {
-            if (s.via != "saved") return
-            // The saved file has sound only. Ask the online sources for the picture.
-            _state.update { it.copy(videoOn = true) }
-            next(exo.currentPosition / 1000.0, "video")
+            // This source has sound only. Look for one with a picture; the sound plays on meanwhile.
+            findPicture()
             return
         }
         _state.update { it.copy(videoOn = on) }
         start(s, exo.currentPosition / 1000.0, exo.playWhenReady)
+    }
+
+    /**
+     * Asks the other sources, one by one, for one with a picture. The first that has one takes over at the same
+     * spot. If none has one, playback stays as it was and [PlayerState.noPicture] says so.
+     */
+    private fun findPicture() {
+        val id = _state.value.videoId ?: return
+        _state.update { it.copy(videoOn = true, loading = true) }
+        job?.cancel()
+        job = scope.launch {
+            // What is left of this lookup first, then one fresh lookup, since an earlier source may have a picture now.
+            val tries = listOfNotNull(queue, finder.candidates(id).produceIn(scope))
+            for (q in tries) {
+                while (true) {
+                    val n = q.receiveCatching().getOrNull() ?: break
+                    if (n.videoUrl != null) {
+                        queue = q
+                        start(n, exo.currentPosition / 1000.0, exo.playWhenReady)
+                        return@launch
+                    }
+                }
+            }
+            tries.forEach { it.cancel() }
+            queue = null
+            _state.update { it.copy(videoOn = false, loading = false, noPicture = true) }
+        }
     }
 
     fun connectService(context: Context) {

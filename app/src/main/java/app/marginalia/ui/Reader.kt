@@ -70,6 +70,7 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -394,6 +395,8 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Spacer(Modifier.height(if (immersive) 28.dp else if (watchFull) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
+            val noPicture by remember { derivedStateOf { ps.value.noPicture } }
+            LaunchedEffect(noPicture) { if (noPicture) snackbar.showSnackbar("This video has sound only.") }
             if (!immersive) ReaderHeader(
                 video = video, ps = ps, host = app.player,
                 collapsed = collapsed, onExpand = { collapsed = false }, onBack = { if (watchFull) watchFull = false else onBack() },
@@ -404,27 +407,21 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 full = watchFull, onFull = { collapsed = false; editingId = null; searching = false; watchFull = !watchFull },
                 menuOpen = menu, onMenu = { menu = it },
             ) {
-                // What you change while reading, then what is about the video. Everything else is in one sheet, the same one the library uses.
-                DropdownMenuItem(
-                    text = { Text("Find in this video") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    onClick = { menu = false; searching = true },
-                )
-                DropdownMenuItem(
-                    text = { Text("Follow along") },
-                    leadingIcon = { Icon(Icons.Rounded.MyLocation, null) },
-                    trailingIcon = { if (settings.autoScroll) Icon(Icons.Rounded.Check, "On", tint = scheme.primary) },
-                    onClick = { app.settings.update { it.copy(autoScroll = !it.autoScroll) } },
-                )
-                DropdownMenuItem(
-                    text = { Text("Only the text") },
-                    leadingIcon = { Icon(Icons.Rounded.Fullscreen, null) },
-                    onClick = { menu = false; immersive = true },
-                )
-                androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                // Four switches for how you read, as tiles. Then what is about the video, as a short list.
+                val watching = ps.value.videoOn
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MenuTile("Find", Icons.Rounded.Search, on = searching) { menu = false; searching = true }
+                    MenuTile("Follow", Icons.Rounded.MyLocation, on = settings.autoScroll) { app.settings.update { it.copy(autoScroll = !it.autoScroll) } }
+                    MenuTile("Text only", Icons.Rounded.Fullscreen, on = false) { menu = false; immersive = true }
+                    MenuTile(
+                        if (watching) "Listen" else "Video", if (watching) Icons.Rounded.Headphones else Icons.Rounded.Videocam,
+                        on = false, enabled = watching || !ps.value.noPicture,
+                    ) { menu = false; app.player.setVideo(!watching) }
+                }
+                androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 4.dp), color = scheme.outlineVariant.copy(alpha = 0.4f))
                 DropdownMenuItem(
                     text = { Text("Mark as done") },
-                    leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.CheckCircle, null) },
+                    leadingIcon = { Icon(Icons.Rounded.TaskAlt, null) },
                     trailingIcon = { if (video.done) Icon(Icons.Rounded.Check, "On", tint = scheme.primary) },
                     onClick = { app.setDone(videoId, !video.done) },
                 )
@@ -439,7 +436,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     onClick = { menu = false; openInYouTube(ctx, videoId) },
                 )
                 DropdownMenuItem(
-                    text = { Text("Queue, tags, note, more") },
+                    text = { Text("Tags, queue and note") },
                     leadingIcon = { Icon(Icons.Rounded.Sell, null) },
                     onClick = { menu = false; showActions = true },
                 )
@@ -1047,5 +1044,26 @@ private fun FindBar(query: String, count: Int, at: Int, onQuery: (String) -> Uni
         IconButton(onClick = { onStep(-1) }, enabled = count > 0) { Icon(Icons.Rounded.KeyboardArrowUp, "Previous match") }
         IconButton(onClick = { onStep(1) }, enabled = count > 0) { Icon(Icons.Rounded.KeyboardArrowDown, "Next match") }
         IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close search") }
+    }
+}
+
+/** A square switch in the reader's menu: an icon over a short name, filled while it is on. */
+@Composable
+private fun MenuTile(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        Modifier.size(width = 68.dp, height = 64.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (on) scheme.primaryContainer else scheme.surfaceContainerHighest)
+            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+    ) {
+        val tint = when {
+            !enabled -> scheme.outline
+            on -> scheme.onPrimaryContainer
+            else -> scheme.onSurface
+        }
+        Icon(icon, null, Modifier.size(22.dp), tint = tint)
+        Spacer(Modifier.height(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
     }
 }

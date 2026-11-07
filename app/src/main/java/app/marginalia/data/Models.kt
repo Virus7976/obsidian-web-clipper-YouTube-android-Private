@@ -147,6 +147,8 @@ data class ClipTemplate(
     val properties: List<TemplateProperty> = emptyList(),
     /** The vault note this came from. Picking that note again updates this template. */
     val source: String = "",
+    /** The note is a Templater template. Its script is kept, so only plain lines are ever written back. */
+    val templater: Boolean = false,
 )
 
 /** A palette made in the palette maker. */

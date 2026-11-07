@@ -44,6 +44,8 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -190,13 +192,17 @@ fun ReaderHeader(
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(video.meta.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Open, the channel sits under the title. Folded, the time does.
                     if (t > 0f) SmallTime(ps, Modifier.graphicsLayer { alpha = t })
+                    else if (video.meta.author.isNotBlank()) Text(
+                        video.meta.author, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
+                    )
                 }
                 if (collapsed) MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 40.dp)
-                else IconButton(onClick = onFind) { Icon(Icons.Rounded.Search, "Find in this video", tint = if (searching) scheme.primary else scheme.onSurface) }
                 Box {
                     IconButton(onClick = { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, "More") }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenu(false) }, content = menuItems)
+                    ReaderMenu(menuOpen, onMenu, menuItems)
                 }
             }
 
@@ -308,7 +314,7 @@ private fun PictureTopButtons(
         }
         if (!full) Box {
             OverlayButton("More", { onMenu(true) }) { Icon(Icons.Rounded.MoreVert, null, Modifier.size(22.dp), tint = Color.White) }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenu(false) }, content = menuItems)
+            ReaderMenu(menuOpen, onMenu, menuItems)
         }
     }
 }
@@ -349,33 +355,61 @@ private fun OverlayButton(description: String, onClick: () -> Unit, content: @Co
     )
 }
 
-/** The controls under a slim top row, for listening: the seek bar with its times, then the buttons, centred. */
+/** The reader's menu: rounded and in the page's own colours, so it looks like part of the bar it opens from. */
+@Composable
+private fun ReaderMenu(open: Boolean, onMenu: (Boolean) -> Unit, items: @Composable ColumnScope.() -> Unit) {
+    DropdownMenu(
+        expanded = open, onDismissRequest = { onMenu(false) },
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        content = items,
+    )
+}
+
+/** A soft round button. The two ends of the listening row are both one, so the row reads as one set. */
+@Composable
+private fun SoftButton(description: String, onClick: () -> Unit, enabled: Boolean = true, content: @Composable BoxScope.() -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(enabled = enabled, onClickLabel = description, onClick = onClick)
+            .semantics { this.contentDescription = description },
+        contentAlignment = Alignment.Center, content = content,
+    )
+}
+
+/**
+ * Listening, under the title row: the seek bar across the full width with its times under it, then one row
+ * of buttons. Video and speed sit at the two ends in the same soft circle, and the Video button is always
+ * there, so it is easy to find.
+ */
 @Composable
 private fun PlayerControls(ps: State<PlayerState>, host: PlayerHost, chapters: List<Chapter>, onJump: (Double) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     var showLeft by rememberSaveable { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(YouTube.formatTime(ps.value.positionSec), Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
-        SlimSeekBar(
-            ps.value.positionSec, ps.value.durationSec, onSeek = onJump,
-            modifier = Modifier.weight(1f).padding(horizontal = 4.dp), loading = ps.value.waiting, chapters = chapters,
-        )
+    SlimSeekBar(
+        ps.value.positionSec, ps.value.durationSec, onSeek = onJump,
+        modifier = Modifier.padding(horizontal = 4.dp), loading = ps.value.waiting, chapters = chapters,
+    )
+    Row(Modifier.fillMaxWidth().height(16.dp).offset(y = (-6).dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(YouTube.formatTime(ps.value.positionSec), style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
         // Tap the time to see what is left.
         Text(
             if (showLeft) "-" + YouTube.formatTime((ps.value.durationSec - ps.value.positionSec).coerceAtLeast(0.0)) else YouTube.formatTime(ps.value.durationSec),
-            Modifier.clickable(onClickLabel = "Switch between length and time left") { showLeft = !showLeft }.padding(horizontal = 4.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant,
+            Modifier.clickable(onClickLabel = "Switch between length and time left") { showLeft = !showLeft },
+            style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
         )
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { host.setSpeed(nextSpeed(ps.value.speed)) }, modifier = Modifier.width(64.dp)) { Text(speedLabel(ps.value.speed)) }
+    Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+        val none = ps.value.noPicture
+        SoftButton(if (none) "This video has sound only" else "Watch the video", { host.setVideo(true) }, enabled = !none && ps.value.error == null) {
+            Icon(if (none) Icons.Rounded.VideocamOff else Icons.Rounded.Videocam, null, Modifier.size(22.dp), tint = if (none) scheme.outline else scheme.onSurface)
+        }
         IconButton(onClick = { host.skip(-10.0) }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds") }
         MorphingPlayButton(playing = ps.value.playing, onClick = { host.toggle() }, size = 48.dp)
         IconButton(onClick = { host.skip(10.0) }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
-        Box(Modifier.width(64.dp), contentAlignment = Alignment.Center) {
-            if (ps.value.canWatch && ps.value.error == null) IconButton(onClick = { host.setVideo(true) }) {
-                Icon(Icons.Rounded.Videocam, "Show the video", tint = scheme.onSurfaceVariant)
-            }
+        SoftButton("Speed", { host.setSpeed(nextSpeed(ps.value.speed)) }) {
+            Text(speedLabel(ps.value.speed), style = MaterialTheme.typography.labelLarge, color = scheme.onSurface)
         }
     }
 }

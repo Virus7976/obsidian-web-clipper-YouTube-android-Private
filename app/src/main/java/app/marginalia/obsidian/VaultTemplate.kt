@@ -120,12 +120,15 @@ object VaultTemplate {
      * stay, new properties are set up, and properties the note no longer has go away.
      */
     fun read(text: String, path: String, vaultTypes: Map<String, String>, previous: ClipTemplate? = null): ClipTemplate {
-        val (fm, body) = ObsidianText.splitFrontmatter(text.replace("\r\n", "\n"))
+        // A Templater template is read as the plain template its script and tags stand for.
+        val tp = if (Templater.isTemplater(text)) Templater.prepare(text) else null
+        val (fm, body) = ObsidianText.splitFrontmatter((tp?.text ?: text).replace("\r\n", "\n"))
         val props = fields(fm).map { f ->
             previous?.properties?.firstOrNull { it.name.equals(f.name, true) }?.let { return@map it }
             val value = clean(f.value)
-            val type = typeOf(f.name, value, f.list, vaultTypes)
-            val guessed = if (value.isBlank()) guess(f.name, type) else null
+            val type = typeOf(f.name, value, f.list, vaultTypes).ifBlank { tp?.types?.get(f.name).orEmpty() }
+            // By the property's name first, then by the wording of the Templater question behind it.
+            val guessed = if (value.isBlank()) guess(f.name, type) ?: tp?.questions?.get(f.name)?.let(Templater::fromLabel) else null
             TemplateProperty(
                 UUID.randomUUID().toString(), f.name, guessed ?: value, type,
                 ask = value.isBlank() && guessed == null && !f.name.equals("tags", true),
@@ -142,7 +145,12 @@ object VaultTemplate {
             id = UUID.randomUUID().toString().take(12),
             name = path.substringAfterLast('/').removeSuffix(".md"),
         )
-        return base.copy(source = path, noteContentFormat = content, properties = props)
+        // The script's file name and folder only set up a new template. After that they are your choice.
+        val named = if (previous == null && tp != null) base.copy(
+            noteNameFormat = tp.noteName ?: base.noteNameFormat,
+            path = tp.folder ?: base.path,
+        ) else base
+        return named.copy(source = path, noteContentFormat = content, properties = props, templater = tp != null)
     }
 
     private fun block(name: String, value: String, type: String): String {
@@ -163,6 +171,7 @@ object VaultTemplate {
      * line that still means the same is left exactly as it was written.
      */
     fun writeBack(text: String, t: ClipTemplate, read: ClipTemplate): String? {
+        if (t.templater || Templater.isTemplater(text)) return writeBackTemplater(text, t)
         val (fm, body) = ObsidianText.splitFrontmatter(text.replace("\r\n", "\n"))
         val blocks = ArrayList<Pair<String, ArrayList<String>>>()
         for (line in fm.lines()) {
@@ -185,6 +194,38 @@ object VaultTemplate {
         if (lines.trim() == fm.trim() && newBody == body) return null
         val top = if (t.properties.isEmpty()) "" else "---\n$lines\n---\n"
         return top + (if (newBody.isBlank()) "\n" else "\n$newBody")
+    }
+
+    /**
+     * A Templater note is never rewritten whole, because that would lose its script. Only a property
+     * that holds plain text in the note, and is set to the same text every time in the app, is changed,
+     * one line at a time. Lines with a Templater tag are left exactly as they are.
+     */
+    private fun writeBackTemplater(text: String, t: ClipTemplate): String? {
+        val lines = text.replace("\r\n", "\n").lines().toMutableList()
+        var inScript = false
+        var start = -1
+        var end = -1
+        for ((i, line) in lines.withIndex()) {
+            if (line.contains("<%*")) inScript = true
+            if (!inScript && line.trim() == "---") {
+                if (start < 0) start = i else { end = i; break }
+            }
+            if (inScript && line.contains("%>")) inScript = false
+        }
+        if (start < 0 || end < 0) return null
+        var changed = false
+        for (i in start + 1 until end) {
+            val line = lines[i]
+            if (line.contains("<%")) continue
+            val m = head.find(line) ?: continue
+            val p = t.properties.firstOrNull { it.name.equals(unquote(m.groupValues[1]), true) } ?: continue
+            if (p.ask || p.type == "multitext" || VideoData.ruleOf(p) != PropertyRule.Fixed) continue
+            if (unquote(m.groupValues[2]) == p.value) continue
+            lines[i] = block(p.name, p.value, p.type)
+            changed = true
+        }
+        return if (changed) lines.joinToString("\n") else null
     }
 
     /** The vault's types.json with the types set in the app, or null when nothing changed. */
