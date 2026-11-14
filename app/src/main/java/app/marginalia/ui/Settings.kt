@@ -591,7 +591,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
                         }
                     }
                     ListRow(
-                        "Save by itself when a video ends", "Only if it has highlights. It never opens Obsidian.",
+                        "Save by itself when a video ends", "Only if it has highlights. A new note asks for your details first.",
                         onClick = { set { it.copy(autoClip = !it.autoClip) } },
                     ) { Switch(checked = s.autoClip, onCheckedChange = { v -> set { it.copy(autoClip = v) } }) }
                     ListRow(

@@ -121,6 +121,8 @@ fun SaveSheet(
         var pickTags by remember { mutableStateOf(false) }
         var pickNote by remember { mutableStateOf<String?>(null) }
         var asking by remember { mutableStateOf<String?>(null) }
+        var askLink by remember { mutableStateOf(false) }
+        var sendAfterLink by remember { mutableStateOf(false) }
         var askFor by remember { mutableStateOf<String?>(null) }
         var askDone by remember { mutableStateOf<String?>(null) }
         var askEmpty by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -204,10 +206,20 @@ fun SaveSheet(
                     "saveFile" -> withContext(Dispatchers.IO) { Sender.saveFile(ctx, note, folderUri) }
                     "copyToClipboard" -> Sender.copyToClipboard(ctx, note)
                     "share" -> Sender.share(ctx, note)
-                    else -> Sender.addToObsidian(ctx, note)
+                    // Obsidian drops an obsidian://new link when it must load the vault first, so
+                    // the note is lost. With the vault folder linked, write the file here. Then open only the
+                    // vault: opening the new note by name makes Obsidian create an empty note over it.
+                    else -> if (key != null && folderUri.isNotBlank()) {
+                        val saved = withContext(Dispatchers.IO) { Sender.saveFile(ctx, note, folderUri) }
+                        if (saved.ok) {
+                            app.vaults.refresh(key, force = true)
+                            Sender.openVault(ctx, note.vault)
+                            SendResult(true, "Saved to ${saved.path.ifBlank { note.path }}.md", saved.path)
+                        } else saved
+                    } else Sender.addToObsidian(ctx, note)
                 }
                 if (r.ok && (kind == "addToObsidian" || kind == "saveFile")) {
-                    app.library.edit(video.meta.id) { it.copy(noteVault = note.vault, notePath = note.path) }
+                    app.library.edit(video.meta.id) { it.copy(noteVault = note.vault, notePath = r.path.ifBlank { note.path }) }
                 }
                 onDone(r.message, r.ok)
             }
@@ -235,7 +247,37 @@ fun SaveSheet(
 
         // Where a save would touch the vault, ask first when the video is already there.
         fun finish(kind: String) {
-            if ((kind == "addToObsidian" || kind == "saveFile") && existing != null) asking = kind else send(kind)
+            when {
+                // Without the vault folder, the note can only go by link, and Obsidian often drops it.
+                kind == "addToObsidian" && key == null -> askLink = true
+                (kind == "addToObsidian" || kind == "saveFile") && existing != null -> asking = kind
+                else -> send(kind)
+            }
+        }
+        val linkPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+        ) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            runCatching {
+                ctx.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+            val name = vault.ifBlank { android.net.Uri.decode(uri.toString()).substringAfterLast(':').substringAfterLast('/').ifBlank { "Vault" } }
+            app.settings.update {
+                it.copy(
+                    vaults = (it.vaults + name).distinct(),
+                    vault = it.vault.ifBlank { name },
+                    vaultFolders = it.vaultFolders + (name to uri.toString()),
+                    vaultFolderUri = uri.toString(),
+                )
+            }
+            vault = name
+            sendAfterLink = true
+        }
+        // Save once the new folder is in the settings, so the note goes straight into it.
+        androidx.compose.runtime.LaunchedEffect(key, sendAfterLink) {
+            if (sendAfterLink && key != null) { sendAfterLink = false; send("addToObsidian") }
         }
 
         fun setValue(p: app.marginalia.obsidian.BuiltProperty, v: String) {
@@ -247,7 +289,9 @@ fun SaveSheet(
 
         // The boxes are on the sheet. The popup is only for one still empty at save time.
         fun go(kind: String) {
-            askEmpty = note.properties.filter { it.property.id in askIds && it.value.isBlank() }.map { it.property.id }.toSet()
+            // Every field you fill by hand, and the tags, is asked for while still empty.
+            // A note saved without them is hard to find again.
+            askEmpty = note.properties.filter { (it.property.id in mineIds || it.isTags()) && it.value.isBlank() }.map { it.property.id }.toSet()
             if (askEmpty.isNotEmpty()) askFor = kind else finish(kind)
         }
 
@@ -490,6 +534,19 @@ fun SaveSheet(
                     if (ref != null) update(ref)
                 },
                 onDismiss = { pickNote = null },
+            )
+        }
+        if (askLink) {
+            AlertDialog(
+                onDismissRequest = { askLink = false },
+                title = { Text("Link your vault folder") },
+                text = { Text("Pick the folder for ${vault.ifBlank { "your vault" }} once. Then ObsiTube saves notes straight into it.") },
+                confirmButton = {
+                    TextButton(onClick = { askLink = false; linkPicker.launch(null) }) { Text("Pick folder") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { askLink = false; send("addToObsidian") }) { Text("Not now") }
+                },
             )
         }
         val kind = asking

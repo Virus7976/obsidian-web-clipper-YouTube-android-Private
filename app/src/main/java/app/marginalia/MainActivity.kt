@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
         incoming = linkFrom(intent)
         if (intent?.getBooleanExtra(ReviewReminder.EXTRA_REVIEW, false) == true) app.openReview.value = true
         if (intent?.getBooleanExtra(EXTRA_NOW_PLAYING, false) == true) app.openNowPlaying.value = true
+        intent?.getStringExtra(SaveAsk.EXTRA_SAVE)?.let { app.askSave.value = it }
         setContent {
             AppRoot(app, incoming) { incoming = null }
         }
@@ -35,8 +36,17 @@ class MainActivity : ComponentActivity() {
         (application as MarginaliaApp).player.phoneUnlocked()
     }
 
+    override fun onStart() {
+        super.onStart()
+        val app = application as MarginaliaApp
+        app.inForeground = true
+        // The sheet is about to show, so the notification has done its job.
+        if (app.askSave.value != null) SaveAsk.clear(app)
+    }
+
     override fun onStop() {
         super.onStop()
+        (application as MarginaliaApp).inForeground = false
         (application as MarginaliaApp).player.savePosition()
     }
 
@@ -45,6 +55,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.getBooleanExtra(ReviewReminder.EXTRA_REVIEW, false)) (application as MarginaliaApp).openReview.value = true
         if (intent.getBooleanExtra(EXTRA_NOW_PLAYING, false)) (application as MarginaliaApp).openNowPlaying.value = true
+        intent.getStringExtra(SaveAsk.EXTRA_SAVE)?.let { (application as MarginaliaApp).askSave.value = it }
         linkFrom(intent)?.let { incoming = it }
     }
 

@@ -12,8 +12,12 @@ import kotlinx.coroutines.withContext
  * Saves a video's highlights to Obsidian by itself when it ends (Settings > Obsidian).
  * It uses the same template, folder and tags as your last clip of that video.
  * If the video already has a note, it adds only what is missing. Nothing opens, nothing is asked.
+ * A new note with fields still to fill by hand is not saved: it returns [ASK], and the app asks you for them.
  */
 object AutoClip {
+    /** Returned instead of a message when a new note still needs your details. */
+    const val ASK = "ask-for-details"
+
     /** A short sentence to show, or null when there was nothing to do. */
     suspend fun run(app: MarginaliaApp, id: String): String? = withContext(Dispatchers.IO) {
         val ctx = app.applicationContext
@@ -58,6 +62,13 @@ object AutoClip {
             NoteName.build(today, subject, video.meta.title, v)
         } else memo?.name?.ifBlank { null } ?: base.name
         val note = NoteBuilder.build(template, video, lines, s, overrides, name, folder, vault)
+
+        // A new note saved without your own fields and tags is hard to find later. Ask first.
+        if (existing == null) {
+            val isTags = { p: BuiltProperty -> p.type == "multitext" && p.property.name.equals("tags", true) }
+            val mine = base.properties.filter { (!isTags(it) && it.value.isBlank()) || it.property.ask }.map { it.property.id }.toSet()
+            if (note.properties.any { (it.property.id in mine || isTags(it)) && it.value.isBlank() }) return@withContext ASK
+        }
 
         val notePath: String
         val message: String

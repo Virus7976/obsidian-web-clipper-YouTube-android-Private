@@ -53,6 +53,12 @@ class MarginaliaApp : Application() {
     /** Set when the media notification was tapped. The app opens the playing video and clears it. */
     val openNowPlaying = kotlinx.coroutines.flow.MutableStateFlow(false)
 
+    /** A video whose new note needs your details before it saves. The app shows the save sheet for it. */
+    val askSave = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** True while the app is on screen. */
+    @Volatile var inForeground = false
+
     /** Fires with the video id when the queue starts the next video by itself. */
     val advanced = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
 
@@ -95,6 +101,12 @@ class MarginaliaApp : Application() {
         appScope.launch {
             val message = runCatching { app.marginalia.obsidian.AutoClip.run(this@MarginaliaApp, id) }.getOrNull() ?: return@launch
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                // A new note with empty fields waits for you: the save sheet opens, or a notification asks.
+                if (message == app.marginalia.obsidian.AutoClip.ASK) {
+                    askSave.value = id
+                    if (!inForeground) SaveAsk.post(this@MarginaliaApp, id)
+                    return@withContext
+                }
                 android.widget.Toast.makeText(this@MarginaliaApp, message, android.widget.Toast.LENGTH_LONG).show()
             }
         }

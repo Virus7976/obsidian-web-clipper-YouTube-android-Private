@@ -458,7 +458,7 @@ private fun ListField(label: String, value: String, vault: String?, dataIcon: (@
     }
 }
 
-/** Opens after the save button, for the properties marked Ask me. Swiping it away keeps what you typed. */
+/** Opens after the save button, for the fields still empty that you fill by hand. Swiping it away keeps what you typed. */
 @Composable
 fun AskSheet(
     fields: List<BuiltProperty>,

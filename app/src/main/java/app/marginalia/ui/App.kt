@@ -120,6 +120,30 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
             androidx.compose.runtime.LaunchedEffect(wantPlaying) {
                 if (wantPlaying) { app.openNowPlaying.value = false; app.player.state.value.videoId?.let(nav.openVideo) }
             }
+            // Auto-save found a new note with empty fields: ask for them here, over any screen.
+            val askSave by app.askSave.collectAsState()
+            askSave?.let { id ->
+                val video = app.library.get(id)
+                if (video == null) app.askSave.value = null
+                else {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val lines = androidx.compose.runtime.remember(id) {
+                        app.library.loadTranscript(id)?.let {
+                            YouTube.toLines(it.cues, app.settings.value.lineLength, video.chapters)
+                        }.orEmpty()
+                    }
+                    SaveSheet(
+                        video = video,
+                        lines = lines,
+                        onDismiss = { app.askSave.value = null },
+                        onDone = { message, ok ->
+                            app.askSave.value = null
+                            if (ok) app.library.edit(id) { it.copy(clippedAt = System.currentTimeMillis()) }
+                            android.widget.Toast.makeText(ctx, message, android.widget.Toast.LENGTH_LONG).show()
+                        },
+                    )
+                }
+            }
             // When the queue starts the next video, the open reader follows it.
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 app.advanced.collect { id ->

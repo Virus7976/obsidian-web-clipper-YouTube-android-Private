@@ -8,7 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 
-data class SendResult(val ok: Boolean, val message: String)
+data class SendResult(val ok: Boolean, val message: String, val path: String = "")
 
 /** The four ways the web clipper can finish a clip. */
 object Sender {
@@ -74,6 +74,12 @@ object Sender {
         context, "obsidian://open?vault=${Uri.encode(vault)}&file=${Uri.encode(path.removeSuffix(".md"))}",
     )
 
+    /**
+     * Opens the vault only. Used right after ObsiRead writes a note: Obsidian has not seen the new
+     * file yet, and opening it by name makes Obsidian create an empty note over it.
+     */
+    fun openVault(context: Context, vault: String): Boolean = open(context, "obsidian://open?vault=${Uri.encode(vault)}")
+
     /** Opens Obsidian's own search with a query filled in. */
     fun openSearch(context: Context, vault: String, query: String): Boolean = open(
         context, "obsidian://search?vault=${Uri.encode(vault)}&query=${Uri.encode(query)}",
@@ -120,7 +126,8 @@ object Sender {
         }
         return runCatching {
             context.contentResolver.openOutputStream(target.uri, "wt")!!.bufferedWriter().use { it.write(text) }
-            SendResult(true, "Saved ${target.name}.")
+            val where = note.folder.split("/").filter { it.isNotBlank() } + target.name.orEmpty().removeSuffix(".md")
+            SendResult(true, "Saved ${target.name}.", where.joinToString("/"))
         }.getOrElse { SendResult(false, "Could not write the file.") }
     }
 }
