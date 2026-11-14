@@ -784,6 +784,9 @@ class TranscriptView(context: Context) : ScrollView(context) {
         paint.color = color.toInt()
     }
 
+    /** The verse in the words picked now, if any. */
+    private var verse: String? = null
+
     private fun selectionCallback() = object : ActionMode.Callback2() {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             if (style?.highlighterOn == false) return false
@@ -796,6 +799,10 @@ class TranscriptView(context: Context) : ScrollView(context) {
             menu.add(Menu.NONE, ID_SENTENCE, 1, "Sentence").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             menu.add(Menu.NONE, ID_PARAGRAPH, 2, "Paragraph").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             menu.add(Menu.NONE, ID_COPY, 3, "Copy")
+            // A Bible verse in the words opens in Obsi Bible.
+            val picked = tv.text.subSequence(tv.selectionStart.coerceAtLeast(0), tv.selectionEnd.coerceAtLeast(0)).toString()
+            verse = app.obsi.core.link.VerseRefs.find(picked)
+            verse?.let { menu.add(Menu.NONE, ID_BIBLE, 5, "Open $it") }
             // Only when there is a highlight here to take off.
             val here = doc?.wordsInSelection(tv.selectionStart.coerceAtLeast(0), tv.selectionEnd.coerceAtLeast(0))
             if (here != null && here.any { colors.getOrElse(it) { -1 } >= 0 }) menu.add(Menu.NONE, ID_ERASE, 4, "Remove highlight")
@@ -817,6 +824,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
                     }
                 }
                 ID_ERASE -> range?.let { onErase(it.first, it.last) }
+                ID_BIBLE -> verse?.let { app.obsi.core.link.VerseRefs.open(context, it) }
                 else -> if (item.itemId >= ID_COLOR && item.itemId < ID_COLOR + HighlightColors.size && range != null) {
                     tv.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
                     onPaint(range.first, range.last, item.itemId - ID_COLOR)
@@ -878,6 +886,7 @@ class TranscriptView(context: Context) : ScrollView(context) {
         const val ID_COPY = 201
         const val ID_SENTENCE = 202
         const val ID_PARAGRAPH = 203
+        const val ID_BIBLE = 204
         const val MATCH = 0x66FFD54F
         const val MATCH_NOW = 0xCCFF9800.toInt()
     }

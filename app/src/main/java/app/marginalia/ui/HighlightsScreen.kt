@@ -324,6 +324,10 @@ private fun HighlightCard(
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Copy") }, onClick = { menu = false; onCopy(false) })
                             DropdownMenuItem(text = { Text("Copy as a quote") }, onClick = { menu = false; onCopy(true) })
+                            app.obsi.core.link.VerseRefs.find(e.h.text + " " + e.h.note)?.let { v ->
+                                val ctx = androidx.compose.ui.platform.LocalContext.current
+                                DropdownMenuItem(text = { Text("Open $v") }, onClick = { menu = false; app.obsi.core.link.VerseRefs.open(ctx, v) })
+                            }
                             DropdownMenuItem(text = { Text("Delete", color = scheme.error) }, onClick = { menu = false; onDelete() })
                         }
                     }
