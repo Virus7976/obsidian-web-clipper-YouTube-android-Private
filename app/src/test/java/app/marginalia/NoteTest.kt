@@ -15,7 +15,7 @@ import app.marginalia.data.SavedVideo
 import app.obsi.core.data.TranscriptDoc
 import app.marginalia.data.VideoMeta
 import app.marginalia.data.YouTube
-import app.marginalia.obsidian.ClipperImport
+import app.obsi.core.obsidian.ClipperImport
 import app.marginalia.obsidian.NoteBuilder
 import java.io.File
 import org.junit.Assert.assertEquals

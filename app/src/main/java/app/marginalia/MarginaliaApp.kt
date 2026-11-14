@@ -16,9 +16,9 @@ import app.obsi.core.data.Playlists
 import app.obsi.core.data.SettingsStore
 import app.marginalia.data.StreamFinder
 import app.obsi.core.data.VaultStore
-import app.marginalia.update.SelfUpdate
+import app.obsi.core.update.SelfUpdate
 import app.marginalia.data.YouTube
-import app.marginalia.obsidian.ClipperImport
+import app.obsi.core.obsidian.ClipperImport
 import app.marginalia.player.PlayerHost
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -34,7 +34,7 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         private set
     lateinit var player: PlayerHost
         private set
-    lateinit var updates: SelfUpdate
+    override lateinit var updates: SelfUpdate
         private set
     override lateinit var vaults: VaultStore
         private set
@@ -186,6 +186,11 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         val lines = library.loadTranscript(v.meta.id)?.let { YouTube.toLines(it.cues, s.lineLength, v.chapters) }.orEmpty()
         return app.marginalia.obsidian.NoteBuilder.variables(v, lines, s)
     }
+
+    override fun previewLockScreen(context: android.content.Context) = LockScreenActivity.launch(context)
+
+    @androidx.compose.runtime.Composable
+    override fun IconPicker() = app.marginalia.ui.AppIconPicker()
 
     /** Every highlight, for the other Obsi apps to show. */
     private fun sharedHighlights(): List<app.obsi.core.share.SharedHighlight> = library.videos.value.flatMap { v ->

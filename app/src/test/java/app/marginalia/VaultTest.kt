@@ -17,8 +17,8 @@ import app.obsi.core.data.OmniKind
 import app.marginalia.data.SavedVideo
 import app.obsi.core.data.VaultIndex
 import app.marginalia.data.VideoMeta
-import app.marginalia.obsidian.ClipperExport
-import app.marginalia.obsidian.ClipperImport
+import app.obsi.core.obsidian.ClipperExport
+import app.obsi.core.obsidian.ClipperImport
 import app.marginalia.obsidian.NoteBuilder
 import app.marginalia.obsidian.Updater
 import java.io.File

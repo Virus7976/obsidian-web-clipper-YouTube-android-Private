@@ -57,12 +57,9 @@ import androidx.compose.material3.MaterialTheme as M3
 import androidx.compose.ui.text.style.TextOverflow
 
 /** The tabs on the home screen. The order here is the order shown. */
-val HomeTabs = linkedMapOf("library" to "Library", "feed" to "Feed", "queue" to "Queue")
 
-val LibraryLayouts = listOf("list" to "List", "grid" to "Grid", "compact" to "Compact")
 
 /** Pixel characters for pull-to-refresh. '#' is the body, 'o' is the eye. */
-val PixelChars = listOf("ghost" to "Ghost", "heart" to "Heart", "star" to "Star", "invader" to "Invader", "off" to "None")
 
 private val Sprites = mapOf(
     "ghost" to listOf("..####..", ".######.", "##o##o##", "########", "########", "########", "########", "#.##.##."),
