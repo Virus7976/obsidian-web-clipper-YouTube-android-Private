@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.verticalScroll
@@ -74,9 +82,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.marginalia.data.AppSettings
-import app.marginalia.data.Playlist
+import app.obsi.core.data.Playlist
 import app.marginalia.data.SavedVideo
-import app.marginalia.obsidian.Sender
+import app.obsi.core.obsidian.Sender
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
@@ -743,7 +751,7 @@ internal fun suggestFor(all: List<String>, typed: String, max: Int = 12): List<S
     val q = typed.trim().replace(" ", "")
     val pool = all.filterNot { it.equals(typed.trim(), true) }
     if (q.isEmpty()) return pool.take(max)
-    return pool.mapNotNull { n -> app.marginalia.data.Omni.fuzzy(n, q)?.let { n to it.score } }
+    return pool.mapNotNull { n -> app.obsi.core.data.Omni.fuzzy(n, q)?.let { n to it.score } }
         .sortedByDescending { it.second }.map { it.first }.take(max)
 }
 

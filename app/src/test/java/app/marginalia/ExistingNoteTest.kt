@@ -1,9 +1,17 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.ClipTemplate
+import app.obsi.core.data.ClipTemplate
 import app.marginalia.data.SavedVideo
-import app.marginalia.data.TemplateProperty
+import app.obsi.core.data.TemplateProperty
 import app.marginalia.data.VideoMeta
 import app.marginalia.obsidian.NoteBuilder
 import app.marginalia.obsidian.Updater

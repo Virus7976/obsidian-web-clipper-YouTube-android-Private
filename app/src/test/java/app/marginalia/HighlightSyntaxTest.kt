@@ -1,8 +1,16 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.Highlight
-import app.marginalia.data.HighlightColors
+import app.obsi.core.data.Highlight
+import app.obsi.core.data.HighlightColors
 import app.marginalia.obsidian.NoteBuilder
 import org.junit.Assert.assertEquals
 import org.junit.Test

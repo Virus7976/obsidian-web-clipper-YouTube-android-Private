@@ -2,6 +2,14 @@
 
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -105,10 +113,10 @@ fun makePalette(id: String, name: String, seed: Color, style: String): Palette {
     )
 }
 
-fun allPalettes(custom: List<app.marginalia.data.CustomPalette>): List<Palette> =
+fun allPalettes(custom: List<app.obsi.core.data.CustomPalette>): List<Palette> =
     Palettes + custom.map { makePalette(it.id, it.name, Color(it.seed.toInt()), it.style) }
 
-fun paletteOf(id: String, custom: List<app.marginalia.data.CustomPalette> = emptyList()) =
+fun paletteOf(id: String, custom: List<app.obsi.core.data.CustomPalette> = emptyList()) =
     allPalettes(custom).firstOrNull { it.id == id } ?: Palettes.first()
 
 /** The four ways a palette can look. */
@@ -264,19 +272,6 @@ private fun typography(custom: FontFamily?): Typography {
 }
 
 // ---------- motion ----------
-
-/** How bouncy our own animations are. The Material components follow the motion scheme. */
-data class Spring(val damping: Float, val stiffness: Float) {
-    fun <T> spec(): FiniteAnimationSpec<T> = spring(damping, stiffness)
-}
-
-val LocalSpring = staticCompositionLocalOf { Spring(0.62f, 380f) }
-
-fun springFor(motion: String) = when (motion) {
-    "calm" -> Spring(0.9f, 420f)
-    "playful" -> Spring(0.42f, 300f)
-    else -> Spring(0.62f, 380f)
-}
 
 val LocalSettings = staticCompositionLocalOf { AppSettings() }
 

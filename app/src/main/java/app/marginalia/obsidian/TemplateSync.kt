@@ -1,11 +1,19 @@
 package app.marginalia.obsidian
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import android.net.Uri
 import android.widget.Toast
 import app.marginalia.MarginaliaApp
-import app.marginalia.data.ClipTemplate
-import app.marginalia.data.NoteRef
-import app.marginalia.data.VaultScanner
+import app.obsi.core.data.ClipTemplate
+import app.obsi.core.data.NoteRef
+import app.obsi.core.data.VaultScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

@@ -1,10 +1,18 @@
 package app.marginalia.player
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.MarginaliaApp
-import app.marginalia.data.Highlight
-import app.marginalia.data.Highlights
+import app.obsi.core.data.Highlight
+import app.obsi.core.data.Highlights
 import app.marginalia.data.YouTube
-import app.marginalia.data.TranscriptDoc
+import app.obsi.core.data.TranscriptDoc
 
 /**
  * Highlights the sentence being spoken right now, without opening the app.

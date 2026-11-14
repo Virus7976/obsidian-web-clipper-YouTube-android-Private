@@ -1,7 +1,15 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.TemplateProperty
+import app.obsi.core.data.TemplateProperty
 import app.marginalia.obsidian.NoteBuilder
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -37,7 +45,7 @@ class AutosTest {
 
 class DateAddedTest {
     @Test fun todayFilterGivesPlainDate() {
-        val out = app.marginalia.obsidian.Template.render("{{date|date:\"YYYY-MM-DD\"}}", mapOf("date" to "2026-10-27T18:21:00-06:00"))
+        val out = app.obsi.core.obsidian.Template.render("{{date|date:\"YYYY-MM-DD\"}}", mapOf("date" to "2026-10-27T18:21:00-06:00"))
         assertEquals("2026-10-27", out)
     }
 }

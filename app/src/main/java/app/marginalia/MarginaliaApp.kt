@@ -1,5 +1,13 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import android.app.Application
 import app.marginalia.data.AudioCache
 import app.marginalia.data.Library
@@ -7,16 +15,17 @@ import app.marginalia.data.PlayQueue
 import app.marginalia.data.Playlists
 import app.marginalia.data.SettingsStore
 import app.marginalia.data.StreamFinder
-import app.marginalia.data.VaultStore
+import app.obsi.core.data.VaultStore
 import app.marginalia.update.SelfUpdate
 import app.marginalia.data.YouTube
 import app.marginalia.obsidian.ClipperImport
 import app.marginalia.player.PlayerHost
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class MarginaliaApp : Application() {
+class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
     lateinit var settings: SettingsStore
         private set
     lateinit var library: Library
@@ -27,7 +36,7 @@ class MarginaliaApp : Application() {
         private set
     lateinit var updates: SelfUpdate
         private set
-    lateinit var vaults: VaultStore
+    override lateinit var vaults: VaultStore
         private set
     lateinit var playlists: Playlists
         private set
@@ -43,6 +52,13 @@ class MarginaliaApp : Application() {
         private set
 
     val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
+    override val recentTags: kotlinx.coroutines.flow.StateFlow<List<String>> by lazy {
+        settings.state.map { it.recentTags }.stateIn(appScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, settings.value.recentTags)
+    }
+
+    /** A video another Obsi app asked to open, and the second to start at. The app opens it and clears it. */
+    val openItem = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, Double>?>(null)
 
     /** A highlight picked in search: the reader scrolls to it when it opens. Video id and second. */
     val pendingSeek = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, Double>?>(null)
@@ -64,8 +80,10 @@ class MarginaliaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        app.obsi.core.Brand.init(app.obsi.core.ObsiApp.Tube)
+        app.obsi.core.share.SharedHighlights.source = ::sharedHighlights
         settings = SettingsStore(this)
-        vaults = VaultStore(this, settings)
+        vaults = VaultStore(this) { settings.value.vaultFolders }
         updates = SelfUpdate(this, settings)
         library = Library(this)
         reviews = app.marginalia.data.Reviews(this)
@@ -112,7 +130,7 @@ class MarginaliaApp : Application() {
         }
     }
 
-    private val autoClipped = HashMap<String, List<app.marginalia.data.Highlight>>()
+    private val autoClipped = HashMap<String, List<app.obsi.core.data.Highlight>>()
 
     /** A channel page that was just read, so coming back from a video does not start it over. */
     class ChannelPage(val opened: app.marginalia.data.ChannelSource.Opened, var videos: List<app.marginalia.data.ChannelVideo>, var more: Boolean, val at: Long)
@@ -163,6 +181,17 @@ class MarginaliaApp : Application() {
     }
 
     /** First launch: load the clipper templates that ship inside the app. */
+    /** Every highlight, for the other Obsi apps to show. */
+    private fun sharedHighlights(): List<app.obsi.core.share.SharedHighlight> = library.videos.value.flatMap { v ->
+        v.highlights.map { h ->
+            app.obsi.core.share.SharedHighlight(
+                app = app.obsi.core.ObsiApp.Tube, itemId = v.meta.id, itemTitle = v.meta.title, text = h.text, note = h.note,
+                color = HighlightColors.getOrNull(h.color)?.ui ?: 0xFFF2C14E, at = h.startSec.toString(),
+                place = YouTube.formatTime(h.startSec), created = h.createdAt.takeIf { it > 0 } ?: v.addedAt, tags = h.tags,
+            )
+        }
+    }
+
     private fun seedFromBundledClipperSettings() {
         if (settings.value.templates.isNotEmpty()) return
         runCatching {

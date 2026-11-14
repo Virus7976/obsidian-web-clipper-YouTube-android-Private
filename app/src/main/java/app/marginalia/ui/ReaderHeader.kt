@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -77,7 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.viewinterop.AndroidView
-import app.marginalia.data.Chapter
+import app.obsi.core.data.Chapter
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.LayoutDirection

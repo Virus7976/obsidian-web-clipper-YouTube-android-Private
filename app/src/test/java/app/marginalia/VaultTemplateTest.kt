@@ -1,14 +1,22 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.ObsidianText
+import app.obsi.core.data.ObsidianText
 import app.marginalia.data.SavedVideo
-import app.marginalia.data.TemplateProperty
+import app.obsi.core.data.TemplateProperty
 import app.marginalia.data.VideoMeta
 import app.marginalia.obsidian.NoteBuilder
-import app.marginalia.obsidian.PropertyRule
-import app.marginalia.obsidian.VaultTemplate
-import app.marginalia.obsidian.VideoData
+import app.obsi.core.obsidian.PropertyRule
+import app.obsi.core.obsidian.VaultTemplate
+import app.obsi.core.obsidian.VideoData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -33,7 +41,7 @@ class VaultTemplateTest {
     private val types = mapOf("categories" to "multitext", "tags" to "tags", "created" to "date", "topics" to "multitext", "author" to "multitext", "published" to "date")
     private val video = SavedVideo(meta = VideoMeta("abc", "Time", "Some Channel", published = "2026-10-24T00:00:00+00:00", durationSec = 600))
 
-    private fun prop(t: app.marginalia.data.ClipTemplate, name: String) = t.properties.first { it.name == name }
+    private fun prop(t: app.obsi.core.data.ClipTemplate, name: String) = t.properties.first { it.name == name }
 
     @Test
     fun theClippingTemplateSetsItselfUp() {
@@ -148,8 +156,8 @@ class VaultTemplateTest {
 
     @Test
     fun aBoxOffersWhatTheVaultAlreadyUses() {
-        fun note(path: String, fm: String) = app.marginalia.data.NoteRef(path, "u", 0, props = VaultTemplate.values(fm))
-        val index = app.marginalia.data.VaultIndex("v", notes = listOf(
+        fun note(path: String, fm: String) = app.obsi.core.data.NoteRef(path, "u", 0, props = VaultTemplate.values(fm))
+        val index = app.obsi.core.data.VaultIndex("v", notes = listOf(
             note("a.md", "categories:\n  - \"[[Clippings]]\"\n  - \"[[Books]]\"\nauthor: Ann\nsummary: " + "x".repeat(80) + "\nmade: {{date}}\n"),
             note("b.md", "categories: [\"[[Clippings]]\"]\nCategories2:\nAuthor: []\n"),
         ))

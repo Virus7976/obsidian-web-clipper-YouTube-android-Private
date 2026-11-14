@@ -1,10 +1,18 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.Cue
-import app.marginalia.data.Highlights
+import app.obsi.core.data.Cue
+import app.obsi.core.data.Highlights
 import app.marginalia.data.SavedVideo
-import app.marginalia.data.TranscriptDoc
+import app.obsi.core.data.TranscriptDoc
 import app.marginalia.data.VideoMeta
 import app.marginalia.data.YouTube
 import app.marginalia.obsidian.ClipperImport

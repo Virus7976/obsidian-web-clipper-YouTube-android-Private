@@ -1,10 +1,18 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.Channel
-import app.marginalia.data.Highlight
+import app.obsi.core.data.Highlight
 import app.marginalia.data.HitKind
 import app.marginalia.data.LibrarySearch
-import app.marginalia.data.Playlist
+import app.obsi.core.data.Playlist
 import app.marginalia.data.ReviewCard
 import app.marginalia.data.Reviews
 import app.marginalia.data.SavedVideo

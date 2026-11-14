@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import android.graphics.Typeface
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -81,8 +89,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.res.ResourcesCompat
 import app.marginalia.MarginaliaApp
 import app.marginalia.R
-import app.marginalia.data.Highlights
-import app.marginalia.data.TranscriptDoc
+import app.obsi.core.data.Highlights
+import app.obsi.core.data.TranscriptDoc
 import app.marginalia.data.YouTube
 import app.marginalia.player.QuickHighlight
 import coil3.compose.AsyncImage

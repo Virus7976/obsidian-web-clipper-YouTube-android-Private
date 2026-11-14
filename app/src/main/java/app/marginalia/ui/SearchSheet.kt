@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,7 +66,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.marginalia.data.Hit
-import app.marginalia.data.HighlightColors
+import app.obsi.core.data.HighlightColors
 import app.marginalia.data.HitKind
 import app.marginalia.data.LibrarySearch
 import app.marginalia.data.YouTube

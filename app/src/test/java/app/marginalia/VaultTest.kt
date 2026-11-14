@@ -1,13 +1,21 @@
 package app.marginalia
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.Highlight
-import app.marginalia.data.NoteRef
-import app.marginalia.data.ObsidianText
-import app.marginalia.data.Omni
-import app.marginalia.data.OmniKind
+import app.obsi.core.data.Highlight
+import app.obsi.core.data.NoteRef
+import app.obsi.core.data.ObsidianText
+import app.obsi.core.data.Omni
+import app.obsi.core.data.OmniKind
 import app.marginalia.data.SavedVideo
-import app.marginalia.data.VaultIndex
+import app.obsi.core.data.VaultIndex
 import app.marginalia.data.VideoMeta
 import app.marginalia.obsidian.ClipperExport
 import app.marginalia.obsidian.ClipperImport

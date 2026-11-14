@@ -1,8 +1,16 @@
 package app.marginalia.obsidian
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.MarginaliaApp
-import app.marginalia.data.ClipMemo
-import app.marginalia.data.NoteName
+import app.obsi.core.data.ClipMemo
+import app.obsi.core.data.NoteName
 import app.marginalia.data.YouTube
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay

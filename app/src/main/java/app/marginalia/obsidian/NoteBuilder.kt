@@ -1,39 +1,35 @@
 package app.marginalia.obsidian
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
-import app.marginalia.data.ClipTemplate
-import app.marginalia.data.Line
+import app.obsi.core.data.ClipTemplate
+import app.obsi.core.data.Line
 import app.marginalia.data.SavedVideo
-import app.marginalia.data.TemplateProperty
+import app.obsi.core.data.TemplateProperty
 import app.marginalia.data.YouTube
 import java.time.ZonedDateTime
 
-data class BuiltProperty(val property: TemplateProperty, val type: String, val value: String)
 
-data class BuiltNote(
-    val vault: String,
-    val folder: String,
-    val name: String,
-    val behavior: String,
-    val properties: List<BuiltProperty>,
-    val content: String,
-    val markdown: String,
-) {
-    val path: String get() = if (folder.isBlank()) name else "${folder.trim('/')}/$name"
-}
 
 object NoteBuilder {
     fun timeLink(id: String, sec: Double) = "https://www.youtube.com/watch?v=$id&t=${sec.toInt()}s"
 
     /** The colour is a coloured circle right after the opening marks, then the text. */
-    fun styled(h: app.marginalia.data.Highlight, settings: AppSettings): String {
+    fun styled(h: app.obsi.core.data.Highlight, settings: AppSettings): String {
         val text = h.text.replace(Regex("\\s*\\n\\s*"), " ").trim()
         if (settings.highlightSyntax != "obsidian") return text
-        val emoji = app.marginalia.data.HighlightColors.getOrNull(h.color)?.emoji.orEmpty()
+        val emoji = app.obsi.core.data.HighlightColors.getOrNull(h.color)?.emoji.orEmpty()
         return "==$emoji$text=="
     }
 
-    fun highlightEntry(video: SavedVideo, h: app.marginalia.data.Highlight, settings: AppSettings): String {
+    fun highlightEntry(video: SavedVideo, h: app.obsi.core.data.Highlight, settings: AppSettings): String {
         // A note with no highlighted words, such as one written while a song plays.
         if (h.text.isBlank()) {
             val note = h.note.replace(Regex("\\s*\\n\\s*"), " ").trim()
@@ -47,7 +43,7 @@ object NoteBuilder {
     }
 
     /** The tags of one highlight as Obsidian tags, after a space. Empty when it has none. */
-    private fun tagText(h: app.marginalia.data.Highlight): String =
+    private fun tagText(h: app.obsi.core.data.Highlight): String =
         if (h.tags.isEmpty()) "" else " " + h.tags.joinToString(" ") { "#" + it }
 
     fun highlightsMarkdown(video: SavedVideo, settings: AppSettings): String =
@@ -184,21 +180,7 @@ object NoteBuilder {
     private fun quote(s: String) =
         "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace(Regex("\\s*\\n\\s*"), " ").trim() + "\""
 
-    fun splitList(value: String): List<String> {
-        val out = ArrayList<String>()
-        val cur = StringBuilder()
-        var depth = 0
-        for (c in value) {
-            when {
-                c == '[' -> { depth++; cur.append(c) }
-                c == ']' -> { depth = (depth - 1).coerceAtLeast(0); cur.append(c) }
-                (c == ',' || c == '\n') && depth == 0 -> { out += cur.toString(); cur.clear() }
-                else -> cur.append(c)
-            }
-        }
-        out += cur.toString()
-        return out.map { it.trim() }.filter { it.isNotEmpty() }
-    }
+    fun splitList(value: String): List<String> = NoteLists.split(value)
 
     fun yaml(p: BuiltProperty): String {
         val key = if (Regex("^[A-Za-z0-9_ -]+$").matches(p.property.name)) p.property.name else quote(p.property.name)

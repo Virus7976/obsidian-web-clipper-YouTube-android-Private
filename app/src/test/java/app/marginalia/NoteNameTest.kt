@@ -1,6 +1,14 @@
 package app.marginalia
 
-import app.marginalia.data.NoteName
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
+import app.obsi.core.data.NoteName
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Test

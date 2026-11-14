@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -132,14 +140,14 @@ import androidx.core.content.res.ResourcesCompat
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import app.marginalia.R
-import app.marginalia.data.Chapter
-import app.marginalia.data.Highlight
-import app.marginalia.data.HighlightColors
-import app.marginalia.data.Highlights
+import app.obsi.core.data.Chapter
+import app.obsi.core.data.Highlight
+import app.obsi.core.data.HighlightColors
+import app.obsi.core.data.Highlights
 import app.marginalia.data.SavedVideo
-import app.marginalia.data.TranscriptDoc
+import app.obsi.core.data.TranscriptDoc
 import app.marginalia.data.YouTube
-import app.marginalia.obsidian.Template
+import app.obsi.core.obsidian.Template
 import app.marginalia.player.PlayerHost
 import app.marginalia.player.PlayerState
 import coil3.compose.AsyncImage
@@ -1006,7 +1014,7 @@ private fun HighlightNoteBar(
 
     if (linking && vault != null) OmniSheet(
         vault = vault, title = "Link a note",
-        kinds = setOf(app.marginalia.data.OmniKind.Note),
+        kinds = setOf(app.obsi.core.data.OmniKind.Note),
         onPick = { item ->
             val name = item.title
             text = (if (linkTyped && text.endsWith("[[")) text.removeSuffix("[[") else text.trimEnd() + (if (text.isBlank()) "" else " ")) + "[[$name]]"

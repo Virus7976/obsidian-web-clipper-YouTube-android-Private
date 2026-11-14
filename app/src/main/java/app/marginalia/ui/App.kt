@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.spring
@@ -108,6 +116,14 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                     ChannelSource.isChannelLink(link) -> nav.openChannel(link)
                     else -> { while (stack.size > 1) stack.removeAt(stack.lastIndex); addLink = link }
                 }
+            }
+            // A video another Obsi app asked to open.
+            val openItem by app.openItem.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(openItem) {
+                val (id, at) = openItem ?: return@LaunchedEffect
+                app.openItem.value = null
+                if (at >= 0) app.pendingSeek.value = id to at
+                nav.openVideo(id)
             }
             CompositionLocalProvider(LocalNav provides nav) {
             // The daily reminder opens Review.

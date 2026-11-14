@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -29,10 +37,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
-import app.marginalia.data.HighlightColors
-import app.marginalia.data.HighlightRun
-import app.marginalia.data.Highlights
-import app.marginalia.data.TranscriptDoc
+import app.obsi.core.data.HighlightColors
+import app.obsi.core.data.HighlightRun
+import app.obsi.core.data.Highlights
+import app.obsi.core.data.TranscriptDoc
 
 data class ReaderStyle(
     val textColor: Int,

@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -63,7 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.marginalia.R
 import app.marginalia.data.DueItem
-import app.marginalia.data.HighlightColors
+import app.obsi.core.data.HighlightColors
 import app.marginalia.data.YouTube
 import kotlinx.coroutines.launch
 import kotlin.math.abs

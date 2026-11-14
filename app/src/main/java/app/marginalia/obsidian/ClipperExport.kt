@@ -1,5 +1,13 @@
 package app.marginalia.obsidian
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import app.marginalia.data.AppSettings
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray

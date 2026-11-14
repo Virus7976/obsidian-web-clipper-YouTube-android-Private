@@ -1,5 +1,13 @@
 package app.marginalia.ui
 
+import app.obsi.core.*
+import app.obsi.core.data.*
+import app.obsi.core.obsidian.*
+import app.obsi.core.ui.*
+import app.obsi.core.update.*
+import app.obsi.core.link.*
+import app.obsi.core.share.*
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,12 +53,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.marginalia.data.ClipTemplate
-import app.marginalia.data.TemplateProperty
+import app.obsi.core.data.ClipTemplate
+import app.obsi.core.data.TemplateProperty
 import app.marginalia.data.YouTube
 import app.marginalia.obsidian.NoteBuilder
 import app.marginalia.obsidian.TemplateSync
-import app.marginalia.obsidian.VideoData
+import app.obsi.core.obsidian.VideoData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
