@@ -35,7 +35,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import app.marginalia.data.WATCH_LATER
+import app.obsi.core.data.WATCH_LATER
 import app.marginalia.data.VideoMeta
 import androidx.compose.material.icons.rounded.WatchLater
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -81,7 +81,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.marginalia.data.AppSettings
+import app.obsi.core.data.AppSettings
 import app.obsi.core.data.Playlist
 import app.marginalia.data.SavedVideo
 import app.obsi.core.obsidian.Sender
@@ -746,14 +746,6 @@ fun openVideoNote(ctx: android.content.Context, application: app.marginalia.Marg
     return ok
 }
 
-/** Names you already use, best match first. Typed letters may skip some. An empty box shows them all. */
-internal fun suggestFor(all: List<String>, typed: String, max: Int = 12): List<String> {
-    val q = typed.trim().replace(" ", "")
-    val pool = all.filterNot { it.equals(typed.trim(), true) }
-    if (q.isEmpty()) return pool.take(max)
-    return pool.mapNotNull { n -> app.obsi.core.data.Omni.fuzzy(n, q)?.let { n to it.score } }
-        .sortedByDescending { it.second }.map { it.first }.take(max)
-}
 
 /** Asks for a name, then makes the playlist. */
 @Composable

@@ -11,9 +11,9 @@ import app.obsi.core.share.*
 import android.app.Application
 import app.marginalia.data.AudioCache
 import app.marginalia.data.Library
-import app.marginalia.data.PlayQueue
-import app.marginalia.data.Playlists
-import app.marginalia.data.SettingsStore
+import app.obsi.core.data.PlayQueue
+import app.obsi.core.data.Playlists
+import app.obsi.core.data.SettingsStore
 import app.marginalia.data.StreamFinder
 import app.obsi.core.data.VaultStore
 import app.marginalia.update.SelfUpdate
@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
-    lateinit var settings: SettingsStore
+    override lateinit var settings: SettingsStore
         private set
     lateinit var library: Library
         private set
@@ -181,6 +181,12 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
     }
 
     /** First launch: load the clipper templates that ship inside the app. */
+    override fun sampleVariables(s: app.obsi.core.data.AppSettings): Map<String, String> {
+        val v = library.videos.value.maxByOrNull { maxOf(it.playedAt, it.updatedAt) } ?: return emptyMap()
+        val lines = library.loadTranscript(v.meta.id)?.let { YouTube.toLines(it.cues, s.lineLength, v.chapters) }.orEmpty()
+        return app.marginalia.obsidian.NoteBuilder.variables(v, lines, s)
+    }
+
     /** Every highlight, for the other Obsi apps to show. */
     private fun sharedHighlights(): List<app.obsi.core.share.SharedHighlight> = library.videos.value.flatMap { v ->
         v.highlights.map { h ->

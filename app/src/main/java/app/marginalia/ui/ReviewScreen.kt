@@ -1,4 +1,5 @@
 package app.marginalia.ui
+import app.obsi.core.R as CoreR
 
 import app.obsi.core.*
 import app.obsi.core.data.*
@@ -213,7 +214,7 @@ fun ReviewScreen(onBack: () -> Unit) {
                             Text(
                                 quote,
                                 style = MaterialTheme.typography.headlineSmall.copy(
-                                    fontFamily = FontFamily(Font(R.font.newsreader)),
+                                    fontFamily = FontFamily(Font(CoreR.font.newsreader)),
                                     fontSize = if (long) 21.sp else 27.sp, lineHeight = if (long) 31.sp else 39.sp,
                                 ),
                             )

@@ -23,7 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import app.marginalia.ui.LocalApp
 import app.marginalia.ui.LockScreen
-import app.marginalia.ui.MarginaliaTheme
+import app.obsi.core.ui.MarginaliaTheme
 
 /**
  * The lock screen player. It shows over the keyguard while audio plays, like a music app's own lock screen.

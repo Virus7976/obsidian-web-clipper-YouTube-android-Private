@@ -118,7 +118,7 @@ fun SettingsScreen(onBack: () -> Unit, onEditTemplate: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val s by app.settings.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
-    fun set(block: (app.marginalia.data.AppSettings) -> app.marginalia.data.AppSettings) = app.settings.update(block)
+    fun set(block: (app.obsi.core.data.AppSettings) -> app.obsi.core.data.AppSettings) = app.settings.update(block)
     fun say(msg: String) { scope.launch { snackbar.showSnackbar(msg) } }
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -858,7 +858,7 @@ private fun PaletteMaker(onDismiss: () -> Unit, onSave: (app.obsi.core.data.Cust
 // ---------- updates ----------
 
 @Composable
-private fun UpdateGroup(s: app.marginalia.data.AppSettings, set: ((app.marginalia.data.AppSettings) -> app.marginalia.data.AppSettings) -> Unit) {
+private fun UpdateGroup(s: app.obsi.core.data.AppSettings, set: ((app.obsi.core.data.AppSettings) -> app.obsi.core.data.AppSettings) -> Unit) {
     val app = LocalApp.current
     val up = app.updates
     val state by up.state.collectAsState()

@@ -1,4 +1,5 @@
 package app.marginalia.ui
+import app.obsi.core.R as CoreR
 
 import app.obsi.core.*
 import app.obsi.core.data.*
@@ -167,7 +168,7 @@ private fun OpenLockScreen(app: MarginaliaApp, onUnlock: () -> Unit) {
         accent = argb(accent),
         sizeSp = s.lockTextSize,
         lineMult = s.lineHeight,
-        typeface = if (s.readerFont == "system") Typeface.DEFAULT else ResourcesCompat.getFont(ctx, R.font.newsreader),
+        typeface = if (s.readerFont == "system") Typeface.DEFAULT else ResourcesCompat.getFont(ctx, CoreR.font.newsreader),
         highlightAlpha = 0.42f,
         holdSelects = s.holdSelects,
         maxWidthPx = with(density) { (s.maxWidth * s.lockTextSize).dp.roundToPx() },

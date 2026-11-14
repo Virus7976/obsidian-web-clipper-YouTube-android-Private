@@ -8,7 +8,7 @@ import app.obsi.core.update.*
 import app.obsi.core.link.*
 import app.obsi.core.share.*
 
-import app.marginalia.data.AppSettings
+import app.obsi.core.data.AppSettings
 import app.obsi.core.data.Highlight
 import app.obsi.core.data.HighlightColors
 import app.marginalia.obsidian.NoteBuilder

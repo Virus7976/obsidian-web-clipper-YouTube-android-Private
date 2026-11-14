@@ -8,7 +8,7 @@ import app.obsi.core.update.*
 import app.obsi.core.link.*
 import app.obsi.core.share.*
 
-import app.marginalia.data.AppSettings
+import app.obsi.core.data.AppSettings
 import app.obsi.core.data.ClipTemplate
 import app.marginalia.data.SavedVideo
 import app.obsi.core.data.TemplateProperty

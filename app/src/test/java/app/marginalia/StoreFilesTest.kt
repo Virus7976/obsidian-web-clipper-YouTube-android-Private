@@ -8,7 +8,7 @@ import app.obsi.core.update.*
 import app.obsi.core.link.*
 import app.obsi.core.share.*
 
-import app.marginalia.data.StoreFiles
+import app.obsi.core.data.StoreFiles
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

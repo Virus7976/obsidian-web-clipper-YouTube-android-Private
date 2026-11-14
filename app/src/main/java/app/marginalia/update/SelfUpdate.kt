@@ -18,7 +18,7 @@ import android.os.Build
 import android.provider.Settings
 import app.marginalia.BuildConfig
 import app.marginalia.MarginaliaApp
-import app.marginalia.data.SettingsStore
+import app.obsi.core.data.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

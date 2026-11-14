@@ -8,7 +8,7 @@ import app.obsi.core.update.*
 import app.obsi.core.link.*
 import app.obsi.core.share.*
 
-import app.marginalia.data.AppSettings
+import app.obsi.core.data.AppSettings
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

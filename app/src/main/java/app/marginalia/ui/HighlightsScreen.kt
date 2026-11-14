@@ -1,4 +1,5 @@
 package app.marginalia.ui
+import app.obsi.core.R as CoreR
 
 import app.obsi.core.*
 import app.obsi.core.data.*
@@ -296,7 +297,7 @@ private fun HighlightCard(
             Column(Modifier.weight(1f).padding(start = 16.dp, top = 14.dp, end = 4.dp, bottom = 6.dp)) {
                 if (e.h.text.isNotBlank()) Text(
                     found(e.h.text, tokens, scheme.primary),
-                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily(Font(R.font.newsreader)), fontSize = 18.sp, lineHeight = 26.sp),
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily(Font(CoreR.font.newsreader)), fontSize = 18.sp, lineHeight = 26.sp),
                     maxLines = if (expanded) Int.MAX_VALUE else 6, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 12.dp),
                 )

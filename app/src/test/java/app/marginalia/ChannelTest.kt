@@ -8,7 +8,7 @@ import app.obsi.core.update.*
 import app.obsi.core.link.*
 import app.obsi.core.share.*
 
-import app.marginalia.data.AppSettings
+import app.obsi.core.data.AppSettings
 import app.marginalia.data.ChannelSource
 import app.marginalia.data.YouTube
 import kotlinx.coroutines.runBlocking

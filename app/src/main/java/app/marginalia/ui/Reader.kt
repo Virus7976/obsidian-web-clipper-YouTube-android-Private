@@ -1,4 +1,5 @@
 package app.marginalia.ui
+import app.obsi.core.R as CoreR
 
 import app.obsi.core.*
 import app.obsi.core.data.*
@@ -298,10 +299,10 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
     val darkText = scheme.onSurface.toArgb()
     val readerTypeface = remember(settings.readerFont, settings.customFontPath) {
         when (settings.readerFont) {
-            "sans" -> ResourcesCompat.getFont(ctx, R.font.atkinson_regular)
+            "sans" -> ResourcesCompat.getFont(ctx, CoreR.font.atkinson_regular)
             "system" -> Typeface.DEFAULT
-            "custom" -> customTypeface(settings.customFontPath) ?: ResourcesCompat.getFont(ctx, R.font.newsreader)
-            else -> ResourcesCompat.getFont(ctx, R.font.newsreader)
+            "custom" -> customTypeface(settings.customFontPath) ?: ResourcesCompat.getFont(ctx, CoreR.font.newsreader)
+            else -> ResourcesCompat.getFont(ctx, CoreR.font.newsreader)
         }
     }
     val style = ReaderStyle(

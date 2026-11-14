@@ -25,7 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import app.marginalia.data.AppSettings
+import app.obsi.core.data.AppSettings
 import app.marginalia.data.AudioCache
 import app.marginalia.data.StreamFinder
 import app.marginalia.data.Streams

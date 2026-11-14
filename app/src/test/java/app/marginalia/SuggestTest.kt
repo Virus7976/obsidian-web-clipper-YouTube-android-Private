@@ -8,7 +8,6 @@ import app.obsi.core.update.*
 import app.obsi.core.link.*
 import app.obsi.core.share.*
 
-import app.marginalia.ui.suggestFor
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

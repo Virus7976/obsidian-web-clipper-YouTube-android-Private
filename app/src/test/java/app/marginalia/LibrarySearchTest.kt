@@ -123,19 +123,19 @@ class HighlightTagTest {
 
     @Test fun tagsGoAfterTheNoteAsObsidianTags() {
         val h = Highlight("1", 83.0, 90.0, "words here", "see [[Memory palace]]", 0, tags = listOf("poem", "memorize"))
-        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.marginalia.data.AppSettings())
+        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.obsi.core.data.AppSettings())
         assertTrue(out, out.endsWith("see [[Memory palace]] #poem #memorize"))
     }
 
     @Test fun noTagsAddsNothing() {
         val h = Highlight("1", 83.0, 90.0, "words here", "", 0)
-        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.marginalia.data.AppSettings())
+        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.obsi.core.data.AppSettings())
         assertFalse(out.contains("#"))
     }
 
     @Test fun aTimedNoteKeepsItsTags() {
         val h = Highlight("1", 5.0, 5.0, "", "the drop", 0, tags = listOf("song"))
-        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.marginalia.data.AppSettings())
+        val out = app.marginalia.obsidian.NoteBuilder.highlightEntry(video, h, app.obsi.core.data.AppSettings())
         assertTrue(out, out.endsWith("the drop #song"))
     }
 
