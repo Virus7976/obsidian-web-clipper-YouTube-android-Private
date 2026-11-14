@@ -82,6 +82,7 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         super.onCreate()
         app.obsi.core.Brand.init(app.obsi.core.ObsiApp.Tube)
         app.obsi.core.share.SharedHighlights.source = ::sharedHighlights
+        app.obsi.core.share.SharedSetup.source = { app.obsi.core.share.SharedSetup.of(settings.value) }
         settings = SettingsStore(this)
         vaults = VaultStore(this) { settings.value.vaultFolders }
         updates = SelfUpdate(this, settings)
