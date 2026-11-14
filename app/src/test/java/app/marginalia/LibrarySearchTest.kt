@@ -13,7 +13,7 @@ import app.obsi.core.data.Highlight
 import app.marginalia.data.HitKind
 import app.marginalia.data.LibrarySearch
 import app.obsi.core.data.Playlist
-import app.marginalia.data.ReviewCard
+import app.obsi.core.data.ReviewCard
 import app.marginalia.data.Reviews
 import app.marginalia.data.SavedVideo
 import app.marginalia.data.VideoMeta

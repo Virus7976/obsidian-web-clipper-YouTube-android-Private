@@ -79,7 +79,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** What the last swipe did, so Undo can put it back. */
-private class Undo(val index: Int, val id: String, val previous: app.marginalia.data.ReviewCard?, val what: String)
+private class Undo(val index: Int, val id: String, val previous: app.obsi.core.data.ReviewCard?, val what: String)
 
 /**
  * Review mode. One old highlight at a time. Swipe right or press Keep to see it again later.
@@ -317,5 +317,7 @@ private fun Done(kept: Int, dropped: Int, hadAny: Boolean, more: Int, size: Int,
         Spacer(Modifier.height(24.dp))
         if (more > 0) Button(onClick = onMore, shapes = ButtonDefaults.shapes()) { Text("Review ${if (size == Int.MAX_VALUE) "all $more" else minOf(more, size).toString() + " more"}") }
         TextButton(onClick = onBack) { Text("Done") }
+        Spacer(Modifier.height(24.dp))
+        OtherAppsReview()
     }
 }

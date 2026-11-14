@@ -83,6 +83,8 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         app.obsi.core.Brand.init(app.obsi.core.ObsiApp.Tube)
         app.obsi.core.share.SharedHighlights.source = ::sharedHighlights
         app.obsi.core.share.SharedSetup.source = { app.obsi.core.share.SharedSetup.of(settings.value) }
+        app.obsi.core.share.SharedReview.due = { reviews.due(library.videos.value).map { shared(it.video, it.highlight) } }
+        app.obsi.core.share.SharedReview.act = { key, action -> reviews.act(key, action) }
         settings = SettingsStore(this)
         vaults = VaultStore(this) { settings.value.vaultFolders }
         updates = SelfUpdate(this, settings)
@@ -194,15 +196,14 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
     override fun IconPicker() = app.marginalia.ui.AppIconPicker()
 
     /** Every highlight, for the other Obsi apps to show. */
-    private fun sharedHighlights(): List<app.obsi.core.share.SharedHighlight> = library.videos.value.flatMap { v ->
-        v.highlights.map { h ->
-            app.obsi.core.share.SharedHighlight(
-                app = app.obsi.core.ObsiApp.Tube, itemId = v.meta.id, itemTitle = v.meta.title, text = h.text, note = h.note,
-                color = HighlightColors.getOrNull(h.color)?.ui ?: 0xFFF2C14E, at = h.startSec.toString(),
-                place = YouTube.formatTime(h.startSec), created = h.createdAt.takeIf { it > 0 } ?: v.addedAt, tags = h.tags,
-            )
-        }
-    }
+    private fun sharedHighlights(): List<app.obsi.core.share.SharedHighlight> =
+        library.videos.value.flatMap { v -> v.highlights.map { h -> shared(v, h) } }
+
+    private fun shared(v: app.marginalia.data.SavedVideo, h: app.obsi.core.data.Highlight) = app.obsi.core.share.SharedHighlight(
+        app = app.obsi.core.ObsiApp.Tube, itemId = v.meta.id, itemTitle = v.meta.title, text = h.text, note = h.note,
+        color = HighlightColors.getOrNull(h.color)?.ui ?: 0xFFF2C14E, at = h.startSec.toString(),
+        place = YouTube.formatTime(h.startSec), created = h.createdAt.takeIf { it > 0 } ?: v.addedAt, tags = h.tags, key = h.id,
+    )
 
     private fun seedFromBundledClipperSettings() {
         if (settings.value.templates.isNotEmpty()) return
