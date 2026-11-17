@@ -1,5 +1,6 @@
 package app.marginalia.ui
 
+import app.obsi.core.data.HttpWords
 import app.obsi.core.*
 import app.obsi.core.data.*
 import app.obsi.core.obsidian.*
@@ -110,7 +111,7 @@ fun AddSheet(initial: String?, onDismiss: () -> Unit, onPlaylist: (String) -> Un
                 scope.launch {
                     runCatching { PlaylistImport.fetch(app.youtube, listId) }
                         .onSuccess { plListId = listId; plPreview = it }
-                        .onFailure { error = it.message ?: "Could not read that playlist." }
+                        .onFailure { error = HttpWords.error(it, "Could not read that playlist.") }
                     busy = false
                 }
             }

@@ -83,6 +83,7 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         app.obsi.core.Brand.init(app.obsi.core.ObsiApp.Tube)
         app.obsi.core.share.SharedHighlights.source = ::sharedHighlights
         app.obsi.core.share.SharedSetup.source = { app.obsi.core.share.SharedSetup.of(settings.value) }
+        app.obsi.core.share.SharedStyle.source = { app.obsi.core.share.ObsiStyle.of(settings.value) }
         app.obsi.core.share.SharedReview.due = { reviews.due(library.videos.value).map { shared(it.video, it.highlight) } }
         app.obsi.core.share.SharedReview.act = { key, action -> reviews.act(key, action) }
         settings = SettingsStore(this)
@@ -102,6 +103,12 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         player.onEnded = { player.state.value.videoId?.let { markWatched(it); autoClip(it) }; playNextInQueue() }
         player.onWatched = { markWatched(it); autoClip(it) }
         player.onPosition = { id, sec -> library.edit(id) { it.copy(positionSec = sec, playedAt = System.currentTimeMillis()) } }
+
+        // Time spent, for the shared stats: counted while something plays, in the app or in the background.
+        appScope.launch {
+            val log = app.obsi.core.data.Activity.log(this@MarginaliaApp)
+            while (true) { kotlinx.coroutines.delay(15_000); if (player.state.value.playing) log.addTime(15) }
+        }
         // The reminder alarm follows the settings.
         appScope.launch {
             settings.state.map { it.reviewReminder to it.reviewHour }.distinctUntilChanged().collect { (on, hour) ->
@@ -156,6 +163,7 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
 
     /** A video was watched to the end. It counts as done, and leaves every playlist that is set to drop watched videos. */
     fun markWatched(id: String) {
+        if (library.get(id)?.done == false) app.obsi.core.data.Activity.log(this).finished()
         library.edit(id) { if (it.done) it else it.copy(doneAt = System.currentTimeMillis()) }
         playlists.all.value.filter { it.removeWhenWatched && id in it.videoIds }.forEach { p ->
             playlists.removeVideo(p.id, id)

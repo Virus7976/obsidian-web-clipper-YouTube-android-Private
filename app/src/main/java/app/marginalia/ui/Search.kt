@@ -57,25 +57,3 @@ fun SavedVideo.matchesQuery(query: String): Boolean =
     )
 
 /** The one search box used on every list. A slim pill, one line, with room for the text. */
-@Composable
-fun SearchField(query: String, onQuery: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).height(46.dp)
-            .clip(RoundedCornerShape(50)).background(scheme.surfaceContainerHigh).padding(start = 16.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Rounded.Search, null, Modifier.size(20.dp), tint = scheme.onSurfaceVariant)
-        Box(Modifier.weight(1f).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant)
-            BasicTextField(
-                value = query, onValueChange = onQuery, singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
-                cursorBrush = SolidColor(scheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }, Modifier.size(34.dp)) { Icon(Icons.Rounded.Close, "Clear", Modifier.size(18.dp)) }
-    }
-}

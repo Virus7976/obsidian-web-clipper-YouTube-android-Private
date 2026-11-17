@@ -285,6 +285,11 @@ fun HomeScreen(
                 }
             }
 
+            // The streak and this week, from every Obsi app on the phone.
+            if (browsing) item("stats") {
+                StatsCard(nav.openStats, Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 4.dp))
+            }
+
             // The search icon covers everything you saved. A box here is only for a long list of this one kind.
             val listSize = when {
                 showFeed -> feed.items.size
@@ -371,7 +376,14 @@ fun HomeScreen(
                     )
                 } else {
                     val list = (if (page == "pinned") pinned else resumeAll).filter { it.matchesQuery(query) }
-                    if (list.isEmpty()) item("page-none") { Text("Nothing here matches.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (list.isEmpty()) item("page-none") {
+                        val why = when {
+                            query.isNotBlank() -> "Nothing here matches."
+                            page == "pinned" -> "Nothing is pinned. Press and hold an item, then tap Pin to the top."
+                            else -> "Nothing to pick up. Items you started show here."
+                        }
+                        Text(why, Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     items(list, key = { "pg" + it.meta.id }) { v -> VideoRow(v, onMoreVideo) { onOpen(v.meta.id) } }
                 }
             }
@@ -767,7 +779,7 @@ private fun ContinueRow(v: SavedVideo, onMore: (String) -> Unit, onDone: (String
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(v.meta.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
             Text(
-                listOf(if (minutes <= 1) "Almost done" else "$minutes min left", v.meta.author).filter { it.isNotBlank() }.joinToString("  ·  "),
+                listOf("${minutes.coerceAtLeast(1)} min left", v.meta.author).filter { it.isNotBlank() }.joinToString("  ·  "),
                 Modifier.padding(top = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
             )
