@@ -1,5 +1,8 @@
 package app.marginalia.ui
 
+import app.obsi.core.ui.Onboarding as ObsiOnboarding
+import app.obsi.core.ui.OnboardingScreen as ObsiOnboardingScreen
+
 import app.obsi.core.*
 import app.obsi.core.data.*
 import app.obsi.core.obsidian.*
@@ -50,6 +53,8 @@ val LocalNav = staticCompositionLocalOf<Nav> { error("Nav not provided") }
 
 sealed interface Screen {
     data object Home : Screen
+    /** The first-run walk-through. */
+    data object Welcome : Screen
     data class Reader(val id: String) : Screen
     data class Channel(val url: String) : Screen
     data object Settings : Screen
@@ -63,10 +68,10 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
     val settings by app.settings.state.collectAsState()
     MarginaliaTheme(settings) {
         CompositionLocalProvider(LocalApp provides app) {
-            val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
+            val stack = remember { mutableStateListOf<Screen>(Screen.Home).also { if (ObsiOnboarding.needed(app.settings.value)) it.add(Screen.Welcome) } }
             // Home stays underneath. A second Back in the same frame must not take it away too.
             fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-            BackHandler(enabled = stack.size > 1) { pop() }
+            BackHandler(enabled = stack.size > 1 && stack.last() != Screen.Welcome) { pop() }
             // Each screen keeps its place while another one is on top: open tab, scroll, search box.
             val saved = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
             val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -218,6 +223,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
                     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     saved.SaveableStateProvider(screen.toString()) {
                     when (screen) {
+                        Screen.Welcome -> ObsiOnboardingScreen(pitch = "Watch YouTube with the transcript under the video. Highlight what is said, and save it to your Obsidian vault.", steps = emptyList(), onDone = { stack.remove(Screen.Welcome) })
                         Screen.Home -> HomeScreen(
                             incoming = addLink,
                             onConsumed = { addLink = null },
@@ -245,6 +251,7 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
 }
 
 private fun depth(s: Screen) = when (s) {
+    Screen.Welcome -> 3
     Screen.Home -> 0
     is Screen.Reader -> 1
     is Screen.Channel -> 1
