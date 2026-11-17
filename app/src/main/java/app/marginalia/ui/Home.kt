@@ -1,5 +1,7 @@
 package app.marginalia.ui
 
+import app.obsi.core.ui.rememberOtherHits
+import app.obsi.core.ui.rememberOthersDue
 import app.obsi.core.*
 import app.obsi.core.data.*
 import app.obsi.core.obsidian.*
@@ -150,7 +152,8 @@ fun HomeScreen(
     val playlists by app.playlists.all.collectAsState()
     val queue by app.queue.ids.collectAsState()
     val reviewCards by app.reviews.cards.collectAsState()
-    val dueCount = remember(videos, reviewCards) { app.reviews.due(videos).size }
+    val othersDue = rememberOthersDue()
+    val dueCount = remember(videos, reviewCards) { app.reviews.due(videos).size } + othersDue
 
     // A playlist link that came from the YouTube app opens the Add pop-up with it filled in.
     LaunchedEffect(incoming) {

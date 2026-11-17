@@ -86,6 +86,11 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         app.obsi.core.share.SharedStyle.source = { app.obsi.core.share.ObsiStyle.of(settings.value) }
         app.obsi.core.share.SharedReview.due = { reviews.due(library.videos.value).map { shared(it.video, it.highlight) } }
         app.obsi.core.share.SharedReview.act = { key, action -> reviews.act(key, action) }
+        app.obsi.core.share.SharedSearch.source = { q ->
+            app.marginalia.data.LibrarySearch.search(q, library.videos.value, playlists.all.value, subscriptions.all.value).mapNotNull { h ->
+                when (h.kind) { app.marginalia.data.HitKind.Video -> hitFor(h, "item"); app.marginalia.data.HitKind.Highlight -> hitFor(h, "highlight"); else -> null }
+            }
+        }
         settings = SettingsStore(this)
         vaults = VaultStore(this) { settings.value.vaultFolders }
         updates = SelfUpdate(this, settings)
@@ -107,7 +112,7 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
         // Time spent, for the shared stats: counted while something plays, in the app or in the background.
         appScope.launch {
             val log = app.obsi.core.data.Activity.log(this@MarginaliaApp)
-            while (true) { kotlinx.coroutines.delay(15_000); if (player.state.value.playing) log.addTime(15) }
+            while (true) { kotlinx.coroutines.delay(15_000); player.state.value.let { p -> if (p.playing) log.addTime(15, p.title) } }
         }
         // The reminder alarm follows the settings.
         appScope.launch {
@@ -204,6 +209,14 @@ class MarginaliaApp : Application(), app.obsi.core.ObsiHost {
     override fun IconPicker() = app.marginalia.ui.AppIconPicker()
 
     /** Every highlight, for the other Obsi apps to show. */
+
+    /** This app's answer when another Obsi app searches. */
+    private fun hitFor(h: app.marginalia.data.Hit, kind: String) = app.obsi.core.share.SharedHit(
+        app = app.obsi.core.ObsiApp.Tube, kind = kind, title = h.title, subtitle = h.subtitle, snippet = h.snippet.orEmpty(),
+        itemId = h.videoId, at = if (kind == "item") "" else h.sec.toString(), score = h.score,
+        color = if (kind == "highlight") app.obsi.core.data.HighlightColors.getOrNull(h.color)?.ui ?: 0 else 0,
+    )
+
     private fun sharedHighlights(): List<app.obsi.core.share.SharedHighlight> =
         library.videos.value.flatMap { v -> v.highlights.map { h -> shared(v, h) } }
 
