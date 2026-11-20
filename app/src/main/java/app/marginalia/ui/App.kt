@@ -1,5 +1,7 @@
 package app.marginalia.ui
 
+import app.obsi.core.ui.WhatsNewAfterUpdate
+import app.obsi.core.ui.ObsiOnLeave
 import app.obsi.core.ui.Onboarding as ObsiOnboarding
 import app.obsi.core.ui.OnboardingScreen as ObsiOnboardingScreen
 
@@ -70,6 +72,9 @@ fun AppRoot(app: MarginaliaApp, incomingLink: String?, onLinkConsumed: () -> Uni
     val settings by app.settings.state.collectAsState()
     MarginaliaTheme(settings) {
         CompositionLocalProvider(LocalApp provides app) {
+            // After an update: what changed, one time.
+            WhatsNewAfterUpdate()
+            ObsiOnLeave()
             val stack = remember { mutableStateListOf<Screen>(Screen.Home).also { if (ObsiOnboarding.needed(app.settings.value)) it.add(Screen.Welcome) } }
             // Home stays underneath. A second Back in the same frame must not take it away too.
             fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }

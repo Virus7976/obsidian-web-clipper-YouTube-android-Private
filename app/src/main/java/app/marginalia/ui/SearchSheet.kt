@@ -1,5 +1,7 @@
 package app.marginalia.ui
 
+import app.obsi.core.ai.Meaning
+import app.obsi.core.ui.findByMeaning
 import app.obsi.core.ui.rememberOtherHits
 import app.obsi.core.ui.rememberOthersDue
 import app.obsi.core.*
@@ -157,13 +159,15 @@ fun LibrarySearchSheet(onDismiss: () -> Unit, onOpenPlaylist: (String) -> Unit) 
                     videosWithHighlights = videos,
                     onOpen = ::open,
                 )
-            } else if (shown.isEmpty() && others.isEmpty()) {
+            } else if (shown.isEmpty() && others.isEmpty() && !Meaning.offered(query)) {
                 Text(
                     "Nothing matches \"${query.trim()}\". Try fewer letters, or a word from the note.",
                     Modifier.padding(24.dp), style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
                 )
             } else {
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)) {
+                    // One quiet row finds your highlights by meaning, not only by their words.
+                    findByMeaning(query)
                     items(shown, key = { it.kind.name + "|" + it.videoId + "|" + it.sec + "|" + it.ref + "|" + it.title }) { h ->
                         HitRow(h) { open(h) }
                     }
