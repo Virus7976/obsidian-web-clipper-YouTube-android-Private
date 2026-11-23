@@ -417,18 +417,25 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                 full = watchFull, onFull = { collapsed = false; editingId = null; searching = false; watchFull = !watchFull },
                 menuOpen = menu, onMenu = { menu = it },
             ) {
-                // Four switches for how you read, as tiles. Then what is about the video, as a short list.
+                // Quick buttons you pick, then what is about the video, as a short list. The menu is the core's ActionMenu.
                 val watching = ps.value.videoOn
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MenuTile("Find", Icons.Rounded.Search, on = searching) { menu = false; searching = true }
-                    MenuTile("Follow", Icons.Rounded.MyLocation, on = settings.autoScroll) { app.settings.update { it.copy(autoScroll = !it.autoScroll) } }
-                    MenuTile("Text only", Icons.Rounded.Fullscreen, on = false) { menu = false; immersive = true }
-                    MenuTile(
-                        if (watching) "Listen" else "Video", if (watching) Icons.Rounded.Headphones else Icons.Rounded.Videocam,
-                        on = false, enabled = watching || !ps.value.noPicture,
-                    ) { menu = false; app.player.setVideo(!watching) }
-                }
-                androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 4.dp), color = scheme.outlineVariant.copy(alpha = 0.4f))
+                val quick = listOf(
+                    QuickAction("find", "Find", Icons.Rounded.Search, on = searching) { menu = false; searching = true },
+                    QuickAction("follow", "Follow", Icons.Rounded.MyLocation, on = settings.autoScroll) { app.settings.update { it.copy(autoScroll = !it.autoScroll) } },
+                    QuickAction("text", "Text only", Icons.Rounded.Fullscreen) { menu = false; immersive = true },
+                    QuickAction(
+                        "listen", if (watching) "Listen" else "Video", if (watching) Icons.Rounded.Headphones else Icons.Rounded.Videocam,
+                        enabled = watching || !ps.value.noPicture,
+                    ) { menu = false; app.player.setVideo(!watching) },
+                    QuickAction("done", "Done", Icons.Rounded.TaskAlt, on = video.done) { app.setDone(videoId, !video.done) },
+                    QuickAction("note", "Note", Icons.Rounded.Sell) { menu = false; showActions = true },
+                    QuickAction("about", "About", Icons.Rounded.Description) { menu = false; showAbout = true },
+                    QuickAction("youtube", "YouTube", Icons.Rounded.OpenInNew) { menu = false; openInYouTube(ctx, videoId) },
+                )
+                ActionMenu(
+                    quick, settings.quickButtons ?: listOf("find", "follow", "text", "listen"),
+                    onPicked = { keys -> app.settings.update { it.copy(quickButtons = keys) } },
+                ) { _ ->
                 DropdownMenuItem(
                     text = { Text("Mark as done") },
                     leadingIcon = { Icon(Icons.Rounded.TaskAlt, null) },
@@ -450,6 +457,7 @@ fun ReaderScreen(videoId: String, onBack: () -> Unit) {
                     leadingIcon = { Icon(Icons.Rounded.Sell, null) },
                     onClick = { menu = false; showActions = true },
                 )
+                }
             }
 
             if (searching && !immersive) {
@@ -1058,23 +1066,3 @@ private fun FindBar(query: String, count: Int, at: Int, onQuery: (String) -> Uni
     }
 }
 
-/** A square switch in the reader's menu: an icon over a short name, filled while it is on. */
-@Composable
-private fun MenuTile(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Column(
-        Modifier.size(width = 68.dp, height = 64.dp).clip(RoundedCornerShape(16.dp))
-            .background(if (on) scheme.primaryContainer else scheme.surfaceContainerHighest)
-            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-    ) {
-        val tint = when {
-            !enabled -> scheme.outline
-            on -> scheme.onPrimaryContainer
-            else -> scheme.onSurface
-        }
-        Icon(icon, null, Modifier.size(22.dp), tint = tint)
-        Spacer(Modifier.height(4.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
-    }
-}
